@@ -1,0 +1,29 @@
+{
+  "name": "@recoengine/features",
+  "version": "0.0.0",
+  "description": "Domain-neutral feature extractors and transforms for @recoengine/core.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@recoengine/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

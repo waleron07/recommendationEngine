@@ -1,0 +1,32 @@
+{
+  "name": "recoengine-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Algorithmic, explainable, domain-agnostic recommendation engine. Monorepo root.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.26.0",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean && rm -rf packages/*/dist",
+    "typecheck": "tsc --build --force",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check:arch": "node scripts/check-arch.mjs",
+    "docs": "typedoc",
+    "ci": "pnpm lint && pnpm check:arch && pnpm build && pnpm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "@changesets/cli": "^2.31.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "typedoc": "^0.28.20",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

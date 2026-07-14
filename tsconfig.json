@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/features" },
+    { "path": "./packages/strategies" },
+    { "path": "./packages/modifiers" },
+    { "path": "./packages/diversity" },
+    { "path": "./packages/testing" },
+    { "path": "./packages/recoengine" }
+  ]
+}

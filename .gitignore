@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+docs-build/
+*.tsbuildinfo
+.DS_Store
+.idea/
+.vscode/

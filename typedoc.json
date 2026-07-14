@@ -1,0 +1,19 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/core",
+    "packages/features",
+    "packages/strategies",
+    "packages/modifiers",
+    "packages/diversity",
+    "packages/testing"
+  ],
+  "out": "docs-build",
+  "includeVersion": true,
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": false
+  }
+}

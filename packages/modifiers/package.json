@@ -1,0 +1,29 @@
+{
+  "name": "@recoengine/modifiers",
+  "version": "0.0.0",
+  "description": "Score modifiers for @recoengine/core: fatigue, novelty, boosts and penalties.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@recoengine/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

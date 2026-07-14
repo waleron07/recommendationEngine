@@ -1,0 +1,34 @@
+{
+  "name": "@recoengine/core",
+  "version": "0.0.0",
+  "description": "Domain-agnostic recommendation engine core: pipeline, ports, scoring, explainability. Zero dependencies, runs on Node, Bun, Deno and in the browser.",
+  "keywords": [
+    "recommendation",
+    "recommender",
+    "ranking",
+    "scoring",
+    "explainable",
+    "personalization"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

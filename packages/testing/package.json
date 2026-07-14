@@ -1,0 +1,29 @@
+{
+  "name": "@recoengine/testing",
+  "version": "0.0.0",
+  "description": "Test harness for @recoengine/core: fixtures, golden runner, port contracts.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@recoengine/core": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

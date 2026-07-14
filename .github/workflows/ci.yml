@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, architecture, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      # Guards the promises prose cannot keep: zero-dep core, leftward
+      # dependencies, no Node API in core. See scripts/check-arch.mjs.
+      - run: pnpm check:arch
+      - run: pnpm build
+      - run: pnpm test
+
+  # ARCHITECTURE.md §23.5 claims @recoengine/core runs on Node, Bun, Deno and in
+  # the browser. A claim that is not exercised is a claim that quietly stops being
+  # true, so every runtime named in the doc gets a row here.
+  runtimes:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: 'Node 20', runtime: node, version: '20' }
+          - { name: 'Node 22', runtime: node, version: '22' }
+          - { name: 'Node 24', runtime: node, version: '24' }
+          - { name: 'Bun', runtime: bun }
+          - { name: 'Deno', runtime: deno }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.version || '20' }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - if: matrix.runtime == 'deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Import the built core and assert it loaded
+        run: ${{ matrix.runtime }} scripts/smoke.mjs

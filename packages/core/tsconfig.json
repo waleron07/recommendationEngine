@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+
+    // ИЗОМОРФНОСТЬ, ПРОВЕРЯЕМАЯ КОМПИЛЯТОРОМ (§23.5).
+    // lib без DOM + types: [] означает, что в @recoengine/core не существует
+    // ни process, ни Buffer, ни __dirname, ни window, ни document.
+    // Попытка их использовать — ошибка сборки, а не замечание на ревью.
+    // Это первый рубеж; второй — запрет импортов node:* в scripts/check-arch.mjs.
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}
