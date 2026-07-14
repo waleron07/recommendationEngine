@@ -60,7 +60,7 @@ any dependency pointing the wrong way.
 
 ```bash
 pnpm install
-pnpm ci        # lint + architecture guard + build + test
+pnpm verify    # lint + architecture guard + build + test
 ```
 
 | Command | Does |
