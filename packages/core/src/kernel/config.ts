@@ -209,10 +209,33 @@ export class ConfigResolver {
     return Object.freeze({ ...merged, weights })
   }
 
-  /** Layers per-request overrides over the built config. Stage 0 of the pipeline. */
+  /**
+   * Layers per-request overrides over the built config. Stage 0 of the pipeline.
+   *
+   * Validated exactly as `resolve()` validates, and that is the whole point of this
+   * method's existence rather than a bare `merge`. Without it the engine's own invariants
+   * were advisory to anyone who could write `overrides`: a request could raise
+   * `maxCandidates` to a billion and hand that to retrieval as the database's budget,
+   * lifting the §23.3 ceiling the operator set. A `timeoutMs` of -1 reached
+   * `AbortSignal.timeout` and came back as a raw platform `RangeError`, and a `NaN` weight
+   * walked into the sum the kernel exists to keep NaN out of.
+   *
+   * The registered strategies are read back off `base.weights`, whose keys `resolve()`
+   * already checked — so an override naming an unregistered strategy is refused here for
+   * the same reason it is refused at build: a weight that does nothing is a typo.
+   */
   static override(base: ResolvedConfig, patch: DeepPartial<EngineConfig> | undefined): ResolvedConfig {
     if (patch === undefined) return base
+
+    const resolver = new ConfigResolver()
     const merged = merge({ ...base, weights: Object.fromEntries(base.weights) }, patch) as EngineConfig
+    const issues = resolver.validateEngine(merged, [...base.weights.keys()])
+
+    if (issues.length > 0) {
+      const detail = issues.map((issue) => `  - ${issue.path}: ${issue.message}`).join('\n')
+      throw new RecoError('INVALID_CONFIG', `request.overrides produced an invalid config:\n${detail}`)
+    }
+
     const weights = new Map<StrategyId, number>()
     for (const [id, weight] of Object.entries(merged.weights)) {
       weights.set(id as StrategyId, weight)

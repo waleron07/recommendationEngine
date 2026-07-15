@@ -1,4 +1,5 @@
 import { contributionOf, ScoreBoardBuilder } from '../domain/score.js'
+import { RecoError } from '../kernel/errors.js'
 import { topK } from '../math/heap.js'
 import { NORMALIZERS } from '../math/normalize.js'
 import { RRF_K, reciprocalRankNormalized } from '../math/rrf.js'
@@ -172,6 +173,53 @@ export const defaultExplainer: Explainer = {
 export const DEFAULT_NORMALIZERS: ReadonlyMap<string, ScoreNormalizer> = new Map(
   NORMALIZERS.map((normalizer) => [normalizer.id, normalizer]),
 )
+
+/**
+ * Built-in combiners, by id. What `combiner.id` resolves against.
+ *
+ * This map is why `configure({ combiner: { id: 'rrf' } })` does anything at all. Until it
+ * existed the key was documented in §10, carried a default, and was read by nobody: the
+ * pipeline took the combiner from the registry slot and never looked at the config. Every
+ * engine combined by weighted sum, whatever it had been told — a setting that silently
+ * does nothing, which is the exact failure this codebase rejects everywhere else.
+ */
+export const DEFAULT_COMBINERS: ReadonlyMap<string, ScoreCombiner> = new Map([
+  [weightedSum.id, weightedSum],
+  ['rrf', rrfCombiner()],
+])
+
+/**
+ * The combiner this request should use: the claimed slot, else the configured id.
+ *
+ * A slot wins over the config because it is the more specific statement — `use(myCombiner)`
+ * hands over an object, `combiner.id` names one of ours. A typo in the id is refused
+ * either way (see `assertCombinerId`), so the config cannot quietly mean nothing even when
+ * a slot makes it moot.
+ */
+export function combinerFor(
+  claimed: ScoreCombiner | undefined,
+  configuredId: string,
+  combiners: ReadonlyMap<string, ScoreCombiner>,
+): ScoreCombiner {
+  if (claimed !== undefined) return claimed
+
+  const combiner = combiners.get(configuredId)
+  // Not `as ScoreCombiner`. build() checks the configured id, but `request.overrides` can
+  // replace it per call, and the cast turned that into a TypeError from inside the
+  // combiner's own catch block — a platform error with no code, naming nothing.
+  if (combiner === undefined) assertCombinerId(configuredId, combiners)
+  return combiner as ScoreCombiner
+}
+
+/** Refuses a `combiner.id` naming nothing, at build() rather than at 3am. */
+export function assertCombinerId(configuredId: string, combiners: ReadonlyMap<string, ScoreCombiner>): void {
+  if (combiners.has(configuredId)) return
+  throw new RecoError(
+    'INVALID_CONFIG',
+    `combiner.id is "${configuredId}", which names no registered combiner. ` +
+      `Known: ${[...combiners.keys()].join(', ')}. Register it with use(), or fix the id.`,
+  )
+}
 
 /** Fills a slot only if nobody claimed it, so `.use(myRanker)` never fights the default. */
 export function fillSlot<T>(claimed: T | undefined, fallback: T): T {

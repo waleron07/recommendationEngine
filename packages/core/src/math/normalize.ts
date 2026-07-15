@@ -1,13 +1,19 @@
 import type { ScoreNormalizer } from '../ports/score-normalizer.js'
 
 /**
- * The normalizers of §12. Every one maps a column onto [0..1], because that is what makes
- * a weight a preference rather than a unit conversion.
+ * The normalizers of §12. Each maps a column onto [0..1], because that is what makes a
+ * weight a preference rather than a unit conversion.
  *
  * They differ in what they keep. Min-max keeps distances and trusts the extremes; z-score
- * keeps distances and distrusts the extremes; rank keeps only the order. That is the whole
- * choice, and it belongs to whoever knows the shape of the column — which is the strategy,
- * or the operator, never the engine.
+ * keeps distances and is nearly linear about the mean; rank keeps only the order and is
+ * the only one immune to an outlier. That is the whole choice, and it belongs to whoever
+ * knows the shape of the column — the strategy, or the operator, never the engine.
+ *
+ * **The [0..1] guarantee holds for finite input.** Feed a column an Infinity or a NaN and
+ * these produce NaN rather than a number in range; stage 6 then refuses the column and
+ * fails the request. That is deliberate — a strategy that emitted a NaN has a bug, and
+ * inventing a plausible number for it would hide the bug rather than the NaN. The one
+ * place where a wrong answer could have passed stage 6 silently is guarded in `zscore`.
  */
 
 /**
@@ -79,6 +85,18 @@ export const zscore: ScoreNormalizer = {
     variance /= raw.length
 
     if (variance === 0) return out.fill(0.5)
+
+    if (!Number.isFinite(variance)) {
+      // The one failure in this file that would otherwise be *silent*, which is why it is
+      // the one that throws. Past ~1e154 the squared deviations overflow, `variance` is
+      // Infinity, every z becomes ±0 and every candidate scores 0.5 — a column with real
+      // spread flattened into "everything is average". Stage 6 would wave it through
+      // (0.5 is finite and within [0..1]) and the ranking would quietly lose a strategy.
+      throw new RangeError(
+        `zscore overflowed: this column's spread exceeds what f64 can square (values near ` +
+          `${Math.max(Math.abs(mean), 1)}). Use rank, which ignores magnitudes, or scale the column.`,
+      )
+    }
 
     const deviation = Math.sqrt(variance)
     for (let i = 0; i < raw.length; i++) out[i] = logistic(((raw[i] as number) - mean) / deviation)

@@ -43,6 +43,11 @@ export function resolveRequest<P, UP>(
   request: RecommendationRequest<P, UP>,
   deps: RequestDeps,
 ): RequestContext<UP> {
+  // Before anything else. Stage 0 is the one stage outside `runStage`, so it has to check
+  // for itself — and it does real work: it indexes the whole history and calls the host's
+  // WeightProvider. Both ran on an already-cancelled request until this line existed.
+  request.signal?.throwIfAborted()
+
   const config = ConfigResolver.override(deps.config, request.overrides)
 
   if (!Number.isInteger(request.limit) || request.limit < 0) {

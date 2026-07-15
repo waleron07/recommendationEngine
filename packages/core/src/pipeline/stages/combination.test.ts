@@ -93,6 +93,7 @@ describe('combination (stage 7)', () => {
       ],
       weightedSum,
       ctx,
+      2,
     )
 
     expect(board.base(0)).toBe(1)
@@ -107,7 +108,22 @@ describe('combination (stage 7)', () => {
       },
     }
 
-    const error = failure(() => combine([], broken, ctx))
+    const error = failure(() =>
+      combine(
+        [
+          {
+            strategyId: strategyId('x'),
+            normalized: new Float64Array([1]),
+            raw: new Float64Array([1]),
+            weight: 1,
+            reasons: new Map(),
+          },
+        ],
+        broken,
+        ctx,
+        1,
+      ),
+    )
     expect(error.code).toBe('PORT_FAILED')
     expect(error.message).toMatch(/nothing downstream can run/i)
   })

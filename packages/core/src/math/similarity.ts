@@ -64,7 +64,30 @@ export function cosine(a: Float64Array, b: Float64Array): number {
 
   if (squaredA === 0 || squaredB === 0) return 0
 
-  const value = product / Math.sqrt(squaredA * squaredB)
+  // `sqrt(a * b)` where the product survives, `sqrt(a) * sqrt(b)` where it does not.
+  //
+  // Neither alone is right. The product overflows to Infinity while both operands are
+  // still perfectly finite, and the result then reads as 0 — two identical vectors coming
+  // back "aligned with nothing", indistinguishable from the zero-vector case above. But
+  // splitting it unconditionally rounds twice instead of once, and cosine(v, v) stops
+  // being exactly 1 — a guarantee worth more than it looks, since "is this the same item"
+  // is the question a similarity provider asks most.
+  const productOfSquares = squaredA * squaredB
+  const denominator = Number.isFinite(productOfSquares)
+    ? Math.sqrt(productOfSquares)
+    : Math.sqrt(squaredA) * Math.sqrt(squaredB)
+  const value = product / denominator
+
+  if (!Number.isFinite(value)) {
+    // Reachable only past ~1e154 per component, where f64 cannot square the vector at all.
+    // Refusing is the honest answer: 0 would claim they are unrelated and NaN would poison
+    // every comparison downstream, and this file promises never to emit one.
+    throw new RangeError(
+      `cosine overflowed: components near ${Math.sqrt(Math.max(squaredA, squaredB))} exceed what f64 can square. ` +
+        `Scale the vectors down before comparing them.`,
+    )
+  }
+
   // Floating point can push an exact 1 to 1.0000000000000002, and a caller that trusts the
   // documented range would be right to be surprised.
   return Math.min(1, Math.max(-1, value))

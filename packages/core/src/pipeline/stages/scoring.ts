@@ -43,9 +43,9 @@ export function score<P>(
     }
 
     const weight = ctx.config.weights.get(strategy.id as StrategyId) ?? 1
+    let column: ScoreColumn
     try {
-      const column = isDomainStrategy(strategy) ? strategy.score(view, set) : strategy.score(view)
-      columns.push({ column, weight, strategy: strategy as AnyScoringStrategy })
+      column = isDomainStrategy(strategy) ? strategy.score(view, set) : strategy.score(view)
     } catch (error) {
       rethrowIfAborted(error)
       if (policy.errorPolicy === 'strict') {
@@ -61,10 +61,36 @@ export function score<P>(
         message: `strategy "${strategy.id}" threw; its column was dropped and the weights redistributed.`,
         cause: error,
       })
+      continue
     }
+
+    // Outside the catch on purpose. This is not the strategy failing — it is the engine
+    // judging what the strategy returned, and wrapping that verdict in "the strategy threw"
+    // would bury the only sentence that says what is actually wrong. It is also not
+    // degradable: a column of the wrong length is not a column.
+    assertColumnLength(strategy.id, column.raw.length, set.size)
+    columns.push({ column, weight, strategy: strategy as AnyScoringStrategy })
   }
 
   return columns
+}
+
+/**
+ * A column must have one value per candidate. Positional data has no other contract.
+ *
+ * `assertShape` in stage 6 checks a normalizer against the column it was given, which
+ * leaves the column itself unchecked — so a strategy returning two scores for five
+ * candidates produced a feed of two, silently, with the other three still counted as
+ * retrieved. Checked here rather than there because here is where the fault is, and an
+ * error that names the strategy is worth more than one that names the arithmetic.
+ */
+function assertColumnLength(strategyId: string, length: number, rows: number): void {
+  if (length === rows) return
+  throw new RecoError(
+    'PORT_FAILED',
+    `strategy "${strategyId}" scored ${length} of ${rows} candidates. Rows are positional: a short ` +
+      `column does not score fewer candidates, it scores the wrong ones and drops the rest.`,
+  )
 }
 
 /**

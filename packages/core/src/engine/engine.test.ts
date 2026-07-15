@@ -9,6 +9,7 @@ import type { CandidateProvider } from '../ports/candidate-provider.js'
 import type { FeatureExtractor } from '../ports/feature-extractor.js'
 import type { Clock, Metrics } from '../ports/infra.js'
 import type { ScoringStrategy } from '../ports/scoring-strategy.js'
+import { weightedSum } from './defaults.js'
 import { createEngine } from './engine.js'
 
 const LIMITS = { maxCandidates: 5_000, maxLimit: 100, timeoutMs: 200 }
@@ -202,8 +203,10 @@ describe('a whole request, end to end', () => {
 
     const result = await engine.recommend(request({ limit: 2, offset: 1 }))
     expect(result.recommendations.map((r) => r.item.id)).toEqual(['c', 'b'])
-    // Rank is the position on this page, 1-based.
-    expect(result.recommendations.map((r) => r.rank)).toEqual([1, 2])
+    // Rank is the position in the ranking, not in the page. This test used to assert
+    // [1, 2] and so enshrined the bug: a caller stitching page 1 onto page 2 held two
+    // items both claiming to be first.
+    expect(result.recommendations.map((r) => r.rank)).toEqual([2, 3])
   })
 
   it('rejects a page over the ceiling the operator set', async () => {
@@ -272,7 +275,7 @@ describe('inspect', () => {
     const description = engine.inspect()
 
     expect(description.features).toEqual(['popularity'])
-    expect(description.strategies).toEqual(['popularity'])
+    expect(description.strategies).toEqual([{ id: 'popularity', domain: false }])
     expect(description.stages.retrieval).toEqual(['library'])
     expect(description.schemaVersion).toMatch(/^fs_/)
   })
@@ -342,5 +345,212 @@ describe('infrastructure', () => {
   it('runs without any infrastructure bound at all', async () => {
     const engine = createEngine().configure({ limits: LIMITS }).build()
     await expect(engine.recommend(request())).resolves.toMatchObject({ recommendations: [] })
+  })
+})
+
+describe('combiner.id is a setting that does something (§10)', () => {
+  // It was documented, defaulted, and read by nobody: the pipeline took the combiner from
+  // the registry slot and never looked at the config, so every engine combined by weighted
+  // sum whatever it had been told. Found by auditing which config keys anything reads.
+  const twoStrategies = () =>
+    engineWith()
+      .use(provider('library', tracks('a', 'b', 'c')))
+      .use(popularity)
+      .use(popularityStrategy)
+
+  it('fuses by rank when told to, rather than ignoring the instruction', async () => {
+    const engine = twoStrategies()
+      .configure({ combiner: { id: 'rrf' } })
+      .build()
+    const result = await engine.recommend(request())
+
+    // RRF throws the margins away: first place scores 1 whatever it won by, where the
+    // weighted sum would have carried the 0/10/20 spread through.
+    expect(result.recommendations[0]?.score).toBe(100)
+    expect(result.recommendations.map((r) => r.item.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('still combines by weighted sum by default', async () => {
+    const result = await twoStrategies().build().recommend(request())
+    expect(result.recommendations.map((r) => r.item.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('refuses a combiner id naming nothing, at build() rather than at 3am', () => {
+    const error = (() => {
+      try {
+        twoStrategies()
+          .configure({ combiner: { id: 'wieghted-sum' } })
+          .build()
+      } catch (thrown) {
+        return thrown as RecoError
+      }
+      throw new Error('expected a throw')
+    })()
+
+    expect(error.code).toBe('INVALID_CONFIG')
+    expect(error.message).toContain('wieghted-sum')
+  })
+
+  it('lets a registered combiner win over the configured id', async () => {
+    // The slot is the more specific statement: use() hands over an object, the id names
+    // one of ours.
+    const engine = twoStrategies()
+      .use({ id: 'mine', combine: weightedSum.combine })
+      .configure({ combiner: { id: 'rrf' } })
+      .build()
+
+    await expect(engine.recommend(request())).resolves.toBeDefined()
+  })
+})
+
+describe('inspect marks the domain escape hatch (§19)', () => {
+  it('says which strategies took it', () => {
+    // The hatch is allowed, but it trades portability, and a trade nobody can see is one
+    // nobody will revisit.
+    const domainStrategy = {
+      id: strategyId('title-length'),
+      requires: [],
+      domain: true as const,
+      score: () => ({ strategyId: strategyId('title-length'), raw: new Float64Array(0), reasons: new Map() }),
+    }
+
+    const description = engineWith()
+      .use(popularity)
+      .use(popularityStrategy)
+      .use(domainStrategy)
+      .build()
+      .inspect()
+    expect(description.strategies).toEqual([
+      { id: 'popularity', domain: false },
+      { id: 'title-length', domain: true },
+    ])
+  })
+})
+
+/**
+ * Every case here is a bug an audit found in stages 2-4, and every one was silent.
+ * They live together because they share a moral: the engine was returning a wrong answer
+ * confidently, and the tests it had all passed.
+ */
+describe('regressions found by auditing stages 2-4', () => {
+  it('feeds a user whose strategies all stood down, instead of returning nothing', async () => {
+    // §17.3 promises cold start costs nothing: the column is skipped and the weight
+    // redistributed. But every combiner reads its row count from columns[0] — with no
+    // columns the board had zero rows, and 30 retrieved candidates became an empty feed.
+    const coldStart = {
+      id: strategyId('history'),
+      requires: [],
+      applicable: (c: { history: { size: number } }) => c.history.size >= 20,
+      score: () => ({ strategyId: strategyId('history'), raw: new Float64Array(0), reasons: new Map() }),
+    }
+    const engine = engineWith()
+      .use(provider('library', tracks('a', 'b', 'c')))
+      .use(coldStart)
+      .build()
+
+    const result = await engine.recommend(request())
+    expect(result.recommendations).toHaveLength(3)
+    expect(result.recommendations.every((r) => r.score === 0)).toBe(true)
+  })
+
+  it('feeds an engine that has candidates but no strategies at all', async () => {
+    const engine = engineWith()
+      .use(provider('library', tracks('a', 'b')))
+      .build()
+    expect((await engine.recommend(request())).recommendations).toHaveLength(2)
+  })
+
+  it('refuses a strategy that scored fewer candidates than it was given', async () => {
+    // Rows are positional: a short column does not score fewer candidates, it scores the
+    // wrong ones and drops the rest. This silently truncated the feed.
+    const short: ScoringStrategy = {
+      id: strategyId('short'),
+      requires: [],
+      score: () => ({ strategyId: strategyId('short'), raw: new Float64Array([1, 0.5]), reasons: new Map() }),
+    }
+    const engine = engineWith()
+      .use(provider('library', tracks('a', 'b', 'c', 'd', 'e')))
+      .use(short)
+      .build()
+
+    const error = await failure(() => engine.recommend(request()))
+    expect(error.code).toBe('PORT_FAILED')
+    expect(error.message).toContain('scored 2 of 5')
+  })
+
+  it('holds the operator ceiling against a request that tries to raise it', async () => {
+    // §23.3 calls limits an engine invariant. request.overrides went unvalidated, so any
+    // caller could hand retrieval a budget of a billion and lift the ceiling entirely.
+    const engine = engineWith().build()
+    const error = await failure(() =>
+      engine.recommend(request({ limit: 4_000, overrides: { limits: { maxLimit: 1_000_000 } } })),
+    )
+
+    expect(error.code).toBe('INVALID_CONFIG')
+    expect(error.message).toContain('request.overrides')
+  })
+
+  it.each([
+    ['a negative timeout', { limits: { timeoutMs: -1 } }],
+    ['a NaN weight', { weights: { popularity: Number.NaN } }],
+    ['a weight for nobody', { weights: { ghost: 1 } }],
+  ])('refuses %s in overrides with a RecoError, not a platform error', async (_label, overrides) => {
+    // timeoutMs: -1 reached AbortSignal.timeout and came back as a raw RangeError with no
+    // code — the one thing §17 says never happens.
+    const engine = engineWith()
+      .use(provider('library', tracks('a')))
+      .use(popularity)
+      .use(popularityStrategy)
+      .build()
+    const error = await failure(() => engine.recommend(request({ overrides })))
+
+    expect(error.code).toBe('INVALID_CONFIG')
+  })
+
+  it('refuses a combiner id from overrides that names nothing', async () => {
+    const engine = engineWith()
+      .use(provider('library', tracks('a')))
+      .use(popularity)
+      .use(popularityStrategy)
+      .build()
+    const error = await failure(() =>
+      engine.recommend(request({ overrides: { combiner: { id: 'product' } } })),
+    )
+
+    expect(error.code).toBe('INVALID_CONFIG')
+    expect(error.message).toContain('product')
+  })
+
+  it('does no work at all on an already-cancelled request', async () => {
+    // Stage 0 is outside runStage, so it checked nothing: it indexed the whole history and
+    // called the host's WeightProvider before the abort surfaced a stage later.
+    let called = 0
+    const controller = new AbortController()
+    controller.abort()
+
+    const engine = engineWith()
+      .use(provider('library', tracks('a')))
+      .use({
+        id: 'bandit',
+        weights: () => {
+          called += 1
+          return new Map()
+        },
+      })
+      .build()
+
+    await expect(engine.recommend(request({ signal: controller.signal }))).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+    expect(called).toBe(0)
+  })
+
+  it('refuses to let a built engine be modified through the builder that made it', async () => {
+    // addNormalizer had no seal, and build() handed its map over by reference: a call
+    // afterwards reached into a live engine and changed how it scores.
+    const builder = engineWith()
+    builder.build()
+
+    expect(() => builder.addNormalizer({ id: 'evil', normalize: (c) => c })).toThrow(/after build/i)
   })
 })

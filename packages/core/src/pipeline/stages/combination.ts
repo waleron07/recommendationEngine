@@ -18,9 +18,21 @@ export function combine(
   columns: readonly NormalizedColumn[],
   combiner: ScoreCombiner,
   ctx: RequestContext,
+  rows: number,
 ): ScoreBoard {
+  if (columns.length === 0) {
+    // No columns is not no candidates. Every combiner infers its row count from
+    // `columns[0]`, because that is all the port gives it — so with nothing to combine it
+    // would build a board of zero rows and the feed would come back empty, having
+    // retrieved thousands. That is the cold start of §17.3 arriving at the wrong answer:
+    // when every strategy stands down, §11.2 already says what to do — `weights === 0`, so
+    // base is 0 for everyone — and an unranked feed is exactly what a new user should get.
+    return new ScoreBoardBuilder(rows).build()
+  }
+
+  let board: ScoreBoard
   try {
-    return combiner.combine(columns, ctx)
+    board = combiner.combine(columns, ctx)
   } catch (error) {
     rethrowIfAborted(error)
     throw new RecoError(
@@ -29,6 +41,18 @@ export function combine(
       { cause: error },
     )
   }
+
+  if (board.rows !== rows) {
+    // A board shorter than the candidate set truncates the feed in silence: the missing
+    // rows are simply never ranked, and the diagnostics still report them as retrieved.
+    throw new RecoError(
+      'PORT_FAILED',
+      `combination: combiner "${combiner.id}" returned a board of ${board.rows} rows for ${rows} candidates. ` +
+        `Rows are positional — a short board drops the candidates below it without a word.`,
+    )
+  }
+
+  return board
 }
 
 /**

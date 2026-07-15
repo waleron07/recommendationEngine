@@ -1,9 +1,10 @@
 import type { CandidateSet } from '../domain/candidate.js'
 import type { Recommendation, RecommendationResult } from '../domain/recommendation.js'
-import { defaultExplainer, fillSlot, sortRanker, weightedSum } from '../engine/defaults.js'
+import { combinerFor, defaultExplainer, fillSlot, sortRanker } from '../engine/defaults.js'
 import type { EngineBlueprint } from '../kernel/builder.js'
 import type { RequestContext } from '../ports/context.js'
 import type { Clock, Logger, Metrics, Rng } from '../ports/infra.js'
+import type { ScoreCombiner } from '../ports/score-combiner.js'
 import type { ScoreNormalizer } from '../ports/score-normalizer.js'
 import type { ScoringView } from '../ports/scoring-strategy.js'
 import type { PolicyContext } from './policy.js'
@@ -26,6 +27,7 @@ export interface PipelineDeps {
   readonly logger: Logger
   readonly metrics: Metrics | undefined
   readonly normalizers: ReadonlyMap<string, ScoreNormalizer>
+  readonly combiners: ReadonlyMap<string, ScoreCombiner>
 }
 
 /**
@@ -152,7 +154,13 @@ export async function runPipeline<P, UP>(
     'combination',
     normalized.length,
     (b) => b.rows,
-    async () => combine(normalized, fillSlot(registry.combiner, weightedSum), ctx),
+    async () =>
+      combine(
+        normalized,
+        combinerFor(registry.combiner, ctx.config.combiner.id, deps.combiners),
+        ctx,
+        set.size,
+      ),
   )
 
   const board = await stage(

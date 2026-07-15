@@ -35,8 +35,10 @@ export function explain<P>(
     const row = rows[position] as number
     out.push({
       item: set.at(row).item,
-      // 1-based: position 0 is not a thing anyone says out loud.
-      rank: position + 1,
+      // Position in the ranking, not in the page: 1-based, and offset by where the page
+      // starts. Without the offset every page came back ranked 1..N, so a caller stitching
+      // two pages together held five items all claiming to be first.
+      rank: ctx.offset + position + 1,
       score: toPresentation(board.final(row)),
       explanation: explanationFor(row, explainer, board, set, ctx, policy),
     })

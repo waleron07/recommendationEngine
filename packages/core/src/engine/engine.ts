@@ -2,14 +2,17 @@ import { timestamp } from '../domain/ids.js'
 import type { RecommendationResult } from '../domain/recommendation.js'
 import { type EngineBlueprint, EngineBuilder } from '../kernel/builder.js'
 import type { Container } from '../kernel/container.js'
+import { BuilderSealedError } from '../kernel/errors.js'
 import type { ResolvedRegistry } from '../kernel/registry.js'
 import { CLOCK, LOGGER, METRICS, RNG } from '../kernel/token.js'
 import { Xoshiro128 } from '../math/rng.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import type { RecommendationRequest } from '../pipeline/request.js'
 import type { Clock, Logger, Rng } from '../ports/infra.js'
+import type { ScoreCombiner } from '../ports/score-combiner.js'
 import type { ScoreNormalizer } from '../ports/score-normalizer.js'
-import { DEFAULT_NORMALIZERS } from './defaults.js'
+import { isDomainStrategy } from '../ports/scoring-strategy.js'
+import { assertCombinerId, DEFAULT_COMBINERS, DEFAULT_NORMALIZERS } from './defaults.js'
 
 /**
  * The engine. Immutable, and safe to share across concurrent requests.
@@ -32,18 +35,32 @@ export interface EngineDescription {
   readonly features: readonly string[]
   readonly profileFeatures: readonly string[]
   readonly plugins: readonly { readonly name: string; readonly version: string }[]
-  readonly strategies: readonly string[]
+  /**
+   * Each strategy, and whether it reached for the domain escape hatch.
+   *
+   * §19 promises that a `DomainScoringStrategy` is "visible in engine.inspect()", and the
+   * promise is the point: the hatch is allowed, but taking it trades portability, and a
+   * trade nobody can see is one nobody will revisit. A list of bare ids would have left
+   * that claim unmet.
+   */
+  readonly strategies: readonly { readonly id: string; readonly domain: boolean }[]
   readonly stages: Readonly<Record<string, readonly string[]>>
 }
 
 class Engine<P, UP> implements RecommendationEngine<P, UP> {
   private readonly blueprint: EngineBlueprint<P>
   private readonly normalizers: ReadonlyMap<string, ScoreNormalizer>
+  private readonly combiners: ReadonlyMap<string, ScoreCombiner>
   private disposed = false
 
-  constructor(blueprint: EngineBlueprint<P>, normalizers: ReadonlyMap<string, ScoreNormalizer>) {
+  constructor(
+    blueprint: EngineBlueprint<P>,
+    normalizers: ReadonlyMap<string, ScoreNormalizer>,
+    combiners: ReadonlyMap<string, ScoreCombiner>,
+  ) {
     this.blueprint = blueprint
     this.normalizers = normalizers
+    this.combiners = combiners
   }
 
   async recommend(request: RecommendationRequest<P, UP>): Promise<RecommendationResult<P>> {
@@ -57,6 +74,7 @@ class Engine<P, UP> implements RecommendationEngine<P, UP> {
       logger: container.tryGet(LOGGER) ?? silentLogger,
       metrics: container.tryGet(METRICS),
       normalizers: this.normalizers,
+      combiners: this.combiners,
     })
   }
 
@@ -68,7 +86,7 @@ class Engine<P, UP> implements RecommendationEngine<P, UP> {
       features: registry.schema.descriptors().map((d) => d.key),
       profileFeatures: registry.profileSchema.descriptors().map((d) => d.key),
       plugins: this.blueprint.plugins.map((p) => ({ name: p.name, version: p.version })),
-      strategies: registry.strategies.map((s) => s.id),
+      strategies: registry.strategies.map((s) => ({ id: s.id, domain: isDomainStrategy(s) })),
       stages: {
         retrieval: registry.providers.map((p) => p.id),
         prefilter: registry.preFilters.map((f) => f.id),
@@ -103,15 +121,44 @@ class Engine<P, UP> implements RecommendationEngine<P, UP> {
  */
 class DefaultingEngineBuilder<P, UP> extends EngineBuilder<P> {
   private readonly normalizers = new Map<string, ScoreNormalizer>(DEFAULT_NORMALIZERS)
+  private readonly combiners = new Map<string, ScoreCombiner>(DEFAULT_COMBINERS)
+  private built = false
 
-  /** Registers a normalizer under its id, for `normalization.default` to find. */
+  /**
+   * Registers a normalizer under its id, for `normalization.default` to find.
+   *
+   * Sealed like every other write. It was not, and `build()` handed this map to the engine
+   * by reference — so a call after build() reached into a live engine and changed how it
+   * scores, past the one boundary §8.3 says everything stops at.
+   */
   addNormalizer(normalizer: ScoreNormalizer): this {
+    this.assertNotBuilt('addNormalizer')
     this.normalizers.set(normalizer.id, normalizer)
     return this
   }
 
+  /** Registers a combiner under its id, for `combiner.id` to find. */
+  addCombiner(combiner: ScoreCombiner): this {
+    this.assertNotBuilt('addCombiner')
+    this.combiners.set(combiner.id, combiner)
+    return this
+  }
+
   build(): RecommendationEngine<P, UP> {
-    return new Engine<P, UP>(this.resolve(), this.normalizers)
+    const blueprint = this.resolve()
+    // At build(), not at the first request: a typo'd combiner id must stop the
+    // application from starting, like every other config mistake here.
+    assertCombinerId(blueprint.config.combiner.id, this.combiners)
+    this.built = true
+
+    // Copied, not handed over. The engine must not share a mutable map with the builder
+    // that made it: "immutable, and safe to share across concurrent requests" is a claim
+    // this class makes about itself, and a live reference back to the builder falsifies it.
+    return new Engine<P, UP>(blueprint, new Map(this.normalizers), new Map(this.combiners))
+  }
+
+  private assertNotBuilt(operation: string): void {
+    if (this.built) throw new BuilderSealedError(operation)
   }
 }
 
