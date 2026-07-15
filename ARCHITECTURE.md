@@ -1,6 +1,6 @@
 # Recommendation Engine — Архитектура
 
-> Версия документа: 0.3 (второй круг ревизии — fail-closed в контракте, PreFilter/PostFilter, maxCandidates как инвариант, синхронный score() зафиксирован)
+> Версия документа: 0.4 (аудит на консистентность: исправлены 9 расхождений, накопленных за три ревизии)
 > Статус: **проектирование**. Код не пишется до утверждения.
 
 ---
@@ -172,7 +172,7 @@ recommendationEngine/
 │   │       ├── pipeline/
 │   │       │   ├── stage.ts             Stage, StageMiddleware
 │   │       │   ├── pipeline.ts          исполнитель
-│   │       │   └── stages/              14 реализаций стадий
+│   │       │   └── stages/              15 реализаций стадий (0..14, включая 4b)
 │   │       ├── math/
 │   │       │   ├── normalize.ts         minmax, zscore, rank, sigmoid, softmax
 │   │       │   ├── similarity.ts        cosine, jaccard, dot
@@ -194,10 +194,10 @@ recommendationEngine/
 │   ├── modifiers/               @recoengine/modifiers — Fatigue, Novelty, Boost, Penalty
 │   ├── diversity/               @recoengine/diversity — MMR, AttributeQuota, RoundRobin
 │   ├── testing/                 @recoengine/testing — фикстуры, golden-раннер, property-хелперы
-│   └── domain-music/            @recoengine/domain-music — ПРИМЕР, не часть библиотеки
+│   └── recoengine/              recoengine — meta-пакет (unscoped): core + дефолтная сборка
 │
-├── examples/
-│   ├── music/                   первый пример использования
+├── examples/                    НЕ публикуются в npm (§23.7)
+│   ├── music/                   первый пример использования; здесь же domain-music
 │   ├── ecommerce/               доказательство доменной независимости
 │   └── articles/
 ├── benchmarks/
@@ -209,7 +209,9 @@ recommendationEngine/
 └── pnpm-workspace.yaml
 ```
 
-**Правило зависимостей** (проверяется в CI): `core` ← `strategies|features|modifiers|diversity` ← `domain-*` ← `examples`. Стрелки только влево. `core` не импортирует ничего.
+**Правило зависимостей** (проверяется в CI — `scripts/check-arch.mjs`): `core` ← `strategies|features|modifiers|diversity|testing` ← `recoengine` ← `examples`. Стрелки только влево. `core` не импортирует ничего. Опубликованный пакет не смеет зависеть от `examples/*` — это тоже проверяется.
+
+Семь пакетов, а не шесть: к шести из решения §23.1 добавлен unscoped `recoengine` — meta-пакет для быстрого старта (§23.6). Доменные примеры (`domain-music`) живут в `examples/`, а не в `packages/`: пакет в `packages/` подразумевает публикацию, а публиковать музыкальный домен значит взять на себя его поддержку и снова сделать библиотеку «музыкальной» (§23.7).
 
 ---
 
@@ -592,6 +594,26 @@ export interface ProfileVector {
   vector(key: FeatureKey): Float64Array           // arity > 1: эмбеддинг сессии/профиля
 }
 
+/** Пишущий вид на ProfileVector. Виден только внутри UserFeatureExtractor.extract(). */
+export interface MutableProfileVector extends ProfileVector {
+  set(key: FeatureKey, value: number): void
+  setVector(key: FeatureKey, value: Float64Array): void
+}
+
+/** Куда порты пишут предупреждения. Не console: диагностика — часть ответа (§17.2). */
+export interface DiagnosticsSink {
+  warn(w: DiagnosticWarning): void
+}
+
+/** Одна колонка после нормализации — вход комбайнера. */
+export interface NormalizedColumn {
+  readonly strategyId: StrategyId
+  readonly normalized: Float64Array               // [0..1]
+  readonly raw: Float64Array                      // сохраняется ради explain
+  readonly weight: number
+  readonly reasons: ReadonlyMap<number, readonly Reason[]>
+}
+
 export interface FeatureTransform {
   readonly id: string
   readonly version: string
@@ -726,25 +748,31 @@ export interface RequestContext<UP = unknown> {
 ### 7.1 Слои
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  APPLICATION            examples/music, examples/ecommerce       │
-├──────────────────────────────────────────────────────────────────┤
-│  DOMAIN PLUGINS         @recoengine/domain-music                       │
-│                         ArtistAffinityExtractor, GenreExtractor  │
-├──────────────────────────────────────────────────────────────────┤
-│  GENERIC PLUGINS        @recoengine/strategies  @recoengine/features         │
-│                         @recoengine/modifiers   @recoengine/diversity        │
-├──────────────────────────────────────────────────────────────────┤
-│  PORTS                  CandidateProvider, FeatureExtractor,     │
-│  (@recoengine/core/ports)     ScoringStrategy, Ranker, ...             │
-├──────────────────────────────────────────────────────────────────┤
-│  ENGINE + PIPELINE      RecommendationEngine, Pipeline, Stages   │
-├──────────────────────────────────────────────────────────────────┤
-│  KERNEL                 Container, Registry, PluginHost, Config  │
-├──────────────────────────────────────────────────────────────────┤
-│  DOMAIN MODEL           Item, User, Event, Feature, Score        │
-│  MATH                   normalize, mmr, rrf, decay, heap, rng    │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│  APPLICATION          examples/music, examples/ecommerce               │
+│                       НЕ публикуются (§23.7)                           │
+├────────────────────────────────────────────────────────────────────────┤
+│  DOMAIN PLUGINS       examples/music/domain                            │
+│                       ArtistAffinityExtractor, GenreAffinityExtractor  │
+├────────────────────────────────────────────────────────────────────────┤
+│  META                 recoengine — core + дефолтная сборка             │
+├────────────────────────────────────────────────────────────────────────┤
+│  GENERIC PLUGINS      @recoengine/strategies   @recoengine/features    │
+│                       @recoengine/modifiers    @recoengine/diversity   │
+├────────────────────────────────────────────────────────────────────────┤
+│  PORTS                CandidateProvider, PreFilter, PostFilter,        │
+│  @recoengine/core     FeatureExtractor, UserFeatureExtractor,          │
+│                       ScoringStrategy, Ranker, Diversifier, ...        │
+├────────────────────────────────────────────────────────────────────────┤
+│  ENGINE + PIPELINE    RecommendationEngine, Pipeline, Stages           │
+├────────────────────────────────────────────────────────────────────────┤
+│  KERNEL               Container, EngineBuilder(=Registry), PluginHost, │
+│                       Config, FeatureSchema                            │
+├────────────────────────────────────────────────────────────────────────┤
+│  DOMAIN MODEL         Item, User, Event, FeatureMatrix, ProfileVector, │
+│                       ScoreBoard, HistoryIndex                         │
+│  MATH                 normalize, similarity, mmr, rrf, decay, heap, rng│
+└────────────────────────────────────────────────────────────────────────┘
         Зависимости строго вниз. Ядро не знает о верхних слоях.
 ```
 
@@ -819,40 +847,52 @@ export interface RequestContext<UP = unknown> {
 ### 7.3 Sequence — один вызов `recommend()`
 
 ```
-Client        Engine       Pipeline    Retrieval   Extraction   Scoring    Ranking   Explainer
-  │             │             │            │           │           │          │          │
-  ├─recommend──▶│             │            │           │           │          │          │
-  │             ├─buildCtx───▶│            │           │           │          │          │
-  │             │  (config,   │            │           │           │          │          │
-  │             │   history   │            │           │           │          │          │
-  │             │   index,rng)│            │           │           │          │          │
-  │             ├─run(ctx)───▶│            │           │           │          │          │
-  │             │             ├─execute───▶│           │           │          │          │
-  │             │             │            ├─provider1─┤ (parallel)│          │          │
-  │             │             │            ├─provider2─┤           │          │          │
-  │             │             │◀─CandSet───┤           │           │          │          │
-  │             │             ├─prefilter──┤           │           │          │          │
-  │             │             ├─execute───────────────▶│           │          │          │
-  │             │             │            │           ├─extract1──┤(parallel)│          │
-  │             │             │            │           ├─extract2──┤          │          │
-  │             │             │◀─FeatureMatrix─────────┤           │          │          │
-  │             │             ├─transforms─────────────┤           │          │          │
-  │             │             ├─execute───────────────────────────▶│          │          │
-  │             │             │            │           │           ├─strat1───┤(parallel)│
-  │             │             │            │           │           ├─strat2───┤          │
-  │             │             │            │           │           ├─normalize│          │
-  │             │             │            │           │           ├─combine  │          │
-  │             │             │            │           │           ├─modifiers│(fatigue) │
-  │             │             │◀─ScoreBoard────────────────────────┤          │          │
-  │             │             ├─execute──────────────────────────────────────▶│          │
-  │             │             │            │           │           │          ├─topK     │
-  │             │             │            │           │           │          ├─diversify│
-  │             │             │            │           │           │          ├─blend    │
-  │             │             │◀─rankedRows──────────────────────────────────┤          │
-  │             │             ├─execute─────────────────────────────────────────────────▶│
-  │             │             │◀─Explanation[]──────────────────────────────────────────┤
-  │             │◀─Result─────┤            │           │           │          │          │
-  │◀─Result─────┤             │            │           │           │          │          │
+Client      Engine      Pipeline   Retrieval  Extraction  Scoring   Ranking  Explainer
+  │           │            │           │          │          │         │         │
+  ├─recommend▶│            │           │          │          │         │         │
+  │           ├─ resolve config (overrides > WeightProvider > user > engine)      │
+  │           ├─ build HistoryIndex — ОДИН раз, дальше все читают отсюда (§5.3)   │
+  │           ├─ signal = any(request.signal, timeout(limits.timeoutMs))  (§17.1) │
+  │           ├─ limit > maxLimit ? → REQUEST_LIMIT_EXCEEDED               (§23.3)│
+  │           ├─run(ctx)──▶│           │          │          │         │         │
+  │           │            │           │          │          │         │         │
+  │           │  [1]       ├─execute──▶│          │          │         │         │
+  │           │            │  budget = maxCandidates / providers → LIMIT в SQL    │
+  │           │            │           ├provider1─┤(parallel)│         │         │
+  │           │            │           ├provider2─┤          │         │         │
+  │           │            │◀─CandSet──┤ merge + dedup, sources[] сохранены       │
+  │           │  [2]       ├─preFilter─┤ по payload. throw ⇒ drop      (§17.2)    │
+  │           │            │           │          │          │         │         │
+  │           │  [3]       ├─execute──────────────▶│         │         │         │
+  │           │            │           │          ├extract1──┤(parallel)         │
+  │           │            │           │          ├extract2──┤ → FeatureMatrix    │
+  │           │            │           │          ├userExtr──┤ → ProfileVector    │
+  │           │            │◀─matrix + profile────┤          │         │         │
+  │           │  [4]       ├─transforms───────────┤ топологический порядок        │
+  │           │  [4b]      ├─postFilter───────────┤ по фичам. throw ⇒ drop        │
+  │           │            │           │          │          │         │         │
+  │           │  [5]       ├─execute─────────────────────────▶│        │         │
+  │           │            │  applicable(ctx)? нет ⇒ пропуск, вес уходит в Σ      │
+  │           │            │           │          │          ├strat1───┤(parallel)│
+  │           │            │           │          │          ├strat2───┤         │
+  │           │  [6]       │           │          │          ├normalize│ per column
+  │           │  [7]       │           │          │          ├combine  │ Σwᵢnᵢ/Σw
+  │           │  [8]       │           │          │          ├modifiers│ fatigue ×
+  │           │            │◀─ScoreBoard─────────────────────┤        │         │
+  │           │            │           │          │          │         │         │
+  │           │  [9]       ├─execute────────────────────────────────────▶│       │
+  │           │            │           │          │          │        ├topK heap │
+  │           │  [10]      │           │          │          │        ├diversify │
+  │           │  [11]      │           │          │          │        ├blend 70/20/10
+  │           │  [12]      │           │          │          │        ├truncate  │
+  │           │            │◀─rankedRows────────────────────────────────┤        │
+  │           │  [13]      ├─execute──────────────────────────────────────────────▶│
+  │           │            │◀─Explanation[]───────────────────────────────────────┤
+  │           │  [14]      ├─ assemble Result + Diagnostics (тайминги, warnings)  │
+  │           │◀─Result────┤           │          │          │         │         │
+  │◀─Result───┤            │           │          │          │         │         │
+
+  ctx.signal проверяется на КАЖДОЙ границе [n] — 15 точек, бесплатно (§17.1).
 ```
 
 ---
@@ -1166,7 +1206,7 @@ export interface DomainScoringStrategy<P> {
 ### 11.2 Формула
 
 ```
-Этап 5:  rawᵢⱼ            = strategyⱼ.score(matrix)[i]
+Этап 5:  rawᵢⱼ            = strategyⱼ.score(view)[i]        view = {items, profile, ctx}
 Этап 6:  normᵢⱼ           = normalizerⱼ(raw·ⱼ)[i]                    ∈ [0,1]
 Этап 7:  baseᵢ            = Σⱼ (weightⱼ × normᵢⱼ) / Σⱼ weightⱼ        ∈ [0,1]
 Этап 8:  finalᵢ           = clamp(baseᵢ × Πₘ multₘ(i) + Σₖ addₖ(i), 0, 1)
@@ -1348,23 +1388,36 @@ exploration: {
   explanation: {
     score: 95,
     baseScore: 89,
-    strategies: ['artist', 'genre', 'history', 'popularity'],
+    // Отсортированы по contribution. strength = normalized: «насколько сильна сама
+    // причина», отдельно от того, сколько она дала в итог при своём весе.
     reasons: [
-      { code: 'favorite_artist',   polarity: 'positive', strength: 0.95, params: { artist: 'The Beatles', plays: 143 } },
-      { code: 'favorite_genre',    polarity: 'positive', strength: 0.81, params: { genre: 'Rock' } },
-      { code: 'similar_to_recent', polarity: 'positive', strength: 0.72, params: { count: 5 } },
-      { code: 'popular_in_cohort', polarity: 'positive', strength: 0.44, params: { percentile: 92 } },
+      { code: 'favorite_artist',   polarity: 'positive', strength: 0.98, params: { artist: 'The Beatles', plays: 143 } },
+      { code: 'listened_before',   polarity: 'positive', strength: 0.86, params: { plays: 12 } },
+      { code: 'favorite_genre',    polarity: 'positive', strength: 0.85, params: { genre: 'Rock' } },
+      { code: 'popular_in_cohort', polarity: 'positive', strength: 0.80, params: { percentile: 92 } },
     ],
-    factors: [
-      { strategyId: 'artist',     kind: 'additive', raw: 143, normalized: 0.95, weight: 0.9, contribution: 0.31, reasons: [...] },
-      { strategyId: 'genre',      kind: 'additive', raw: 0.81, normalized: 0.81, weight: 0.6, contribution: 0.18, reasons: [...] },
-      { strategyId: 'history',    kind: 'additive', raw: 12,  normalized: 0.72, weight: 1.0, contribution: 0.26, reasons: [...] },
-      { strategyId: 'popularity', kind: 'additive', raw: 4.2e6, normalized: 0.44, weight: 0.3, contribution: 0.05, reasons: [...] },
+    contributions: [
+      { strategyId: 'artist',     kind: 'additive', raw: 143,   normalized: 0.98, weight: 0.9, contribution: 0.315, reasons: [...] },
+      { strategyId: 'history',    kind: 'additive', raw: 12,    normalized: 0.86, weight: 1.0, contribution: 0.307, reasons: [...] },
+      { strategyId: 'genre',      kind: 'additive', raw: 0.85,  normalized: 0.85, weight: 0.6, contribution: 0.182, reasons: [...] },
+      { strategyId: 'popularity', kind: 'additive', raw: 4.2e6, normalized: 0.80, weight: 0.3, contribution: 0.086, reasons: [...] },
       { strategyId: 'novelty',    kind: 'multiplicative', raw: 1.07, normalized: 1.07, weight: 1, contribution: 1.07, reasons: [] },
     ],
   }
 }
 ```
+
+Числа здесь сходятся, и это не педантизм — §21 требует golden-тест «Σ contributions = baseScore». Пример в документе обязан этот тест проходить, иначе он учит неправильному:
+
+```
+Σ weights            = 0.9 + 1.0 + 0.6 + 0.3            = 2.8
+Σ (weight × norm)    = 0.882 + 0.86 + 0.51 + 0.24       = 2.492
+baseScore            = 2.492 / 2.8 = 0.89               → 89
+final                = 0.89 × 1.07 (novelty)  = 0.9523  → 95
+Σ contributions      = 0.315 + 0.307 + 0.182 + 0.086    = 0.89  ✓
+```
+
+Обратите внимание на `popularity`: сырое значение 4 200 000, нормализованное 0.80, а вклад — всего 0.086 из 0.89. Ровно то, ради чего существует §12: без нормализации это число раздавило бы все остальные.
 
 Рендер (вне ядра, `@recoengine/explain-ru`):
 
@@ -1399,7 +1452,7 @@ ctx.signal = AbortSignal.any([
 
 Контракт для авторов портов — три правила:
 
-1. **Ядро проверяет сигнал на всех 14 границах стадий.** Бесплатно, гарантированно. Порт, который не сделал ничего, всё равно не задержит отмену дольше, чем на одну стадию.
+1. **Ядро проверяет сигнал на всех 15 границах стадий.** Бесплатно, гарантированно. Порт, который не сделал ничего, всё равно не задержит отмену дольше, чем на одну стадию.
 2. **Порт с I/O ОБЯЗАН пробрасывать `ctx.signal` вниз** — в `fetch`, в драйвер БД, в HTTP-клиент. `CandidateProvider` и `FeatureExtractor` — единственные места с сетью; без проброса отмена не освободит соединение, и таймаут запроса не спасёт от исчерпания пула.
 3. **Порт с длинным CPU-циклом обязан проверять `ctx.signal.throwIfAborted()` каждые N итераций** (рекомендация: N = 1024). Касается обхода графа в PPR-экстракторе и MMR на больших выборках. Однопоточный JS не прервёшь снаружи — кооперативность обязательна.
 
@@ -1454,7 +1507,7 @@ filterErrorBudget: 0.05   // доля кандидатов, отваливших
 Все warning'и структурированы и попадают в `Diagnostics.warnings`:
 
 ```ts
-interface DiagnosticWarning {
+export interface DiagnosticWarning {
   readonly stage: string
   readonly port: string
   readonly code: 'port_failed' | 'not_applicable' | 'degraded' | 'quota_unfilled' | 'schema_default'
@@ -1519,11 +1572,13 @@ const engine = createEngine<Track>()
   .use(new MMRDiversifier({ lambda: 0.7 }))
   .configure({
     weights: { history: 1.0, artist: 0.9, genre: 0.6, popularity: 0.3, recency: 0.4 },
+    // Обязательны, без дефолтов (§23.3). Пропустить нельзя: build() бросит INVALID_CONFIG.
+    limits: { maxCandidates: 5_000, maxLimit: 100, timeoutMs: 200 },
     exploration: { enabled: true, buckets: [
       { id: 'exploit', share: 0.7 }, { id: 'explore', share: 0.2 }, { id: 'discover', share: 0.1 },
     ]},
   })
-  .build()   // ← здесь падает, если фича не найдена или веса не сходятся
+  .build()   // ← здесь падает, если фича не найдена, лимиты не заданы или веса не сходятся
 
 const result = await engine.recommend({
   user,
@@ -1544,7 +1599,7 @@ const result = await engine.recommend({
 |---|---|---|---|---|
 | 1 | `CandidateProvider` | many | Откуда берутся кандидаты | да |
 | 2 | `PreFilter` | many | Отсев по payload, стадия 2 (fail-closed) | да |
-| 2b | `PostFilter` | many | Отсев по фичам, стадия 4b (fail-closed) | да |
+| 2b | `PostFilter` | many | Отсев по фичам, стадия 4b (fail-closed) | **нет** |
 | 3 | `FeatureExtractor` | many | **Доменное знание → числа** | **да** |
 | 4 | `UserFeatureExtractor` | many | **Профиль/сессия → вектор** (0.2) | **да** |
 | 5 | `FeatureTransform` | many | Инженерия фичей | нет |
@@ -1562,7 +1617,9 @@ const result = await engine.recommend({
 | 17 | `StageMiddleware` | many | Телеметрия, кэш, отладка | нет |
 | 18 | `Clock` / `Rng` / `Logger` / `Metrics` / `FeatureCache` | single | Инфраструктура | нет |
 
-**Доменных портов — 5 из 18** (`AttributeStore` удалён, `UserFeatureExtractor` и `DomainScoringStrategy` добавлены). Чтобы завести новый домен, реализуется 1–2 порта (провайдер + экстракторы), остальные переиспользуются как есть.
+**Доменных портов — 6 из 19:** `CandidateProvider`, `PreFilter`, `FeatureExtractor`, `UserFeatureExtractor`, `DomainScoringStrategy`, `SimilarityProvider`. Чтобы завести новый домен, реализуется 1–2 порта (провайдер + экстракторы), остальные переиспользуются как есть.
+
+`PostFilter` в этом списке **отсутствует**, и это не оплошность, а следствие его сигнатуры: он получает `(row, view)` и читает только фичи — доменных объектов он не видит. То есть правило «недоступно в регионе» превращается в фичу `is_available` силами экстрактора, а сам фильтр остаётся чистой арифметикой над числом. Разделение «домен → фичи, математика → всё остальное» действует и здесь; `PreFilter` доменный лишь потому, что работает до экстракции и вынужден смотреть в `payload`.
 
 `DomainScoringStrategy` — единственный порт, помеченный «доменный **явно**»: его использование добровольно, видно в `engine.inspect()` и означает сознательный отказ от переносимости в обмен на прямой доступ. Остальные доменные порты доменны по необходимости.
 
@@ -1649,7 +1706,7 @@ const result = await engine.recommend({
 
 ## 23. Открытые вопросы на утверждение
 
-1. ~~**Monorepo (6 пакетов) или один пакет с subpath exports?**~~ **РЕШЕНО: monorepo** (pnpm workspace, 6 пакетов). Ноль зависимостей у `core` иначе не удержать. Цена — сложнее релиз: нужен changesets + правило зависимостей в CI.
+1. ~~**Monorepo (6 пакетов) или один пакет с subpath exports?**~~ **РЕШЕНО: monorepo** (pnpm workspace, 7 пакетов — шесть библиотечных плюс unscoped meta). Ноль зависимостей у `core` иначе не удержать. Цена — сложнее релиз: нужен changesets + правило зависимостей в CI.
 2. ~~**Async-стратегии?**~~ **РЕШЕНО: `score()` синхронный, навсегда.** Это не оптимизация, а **охрана главного разделения**: I/O → Extraction → Math. `async score()` — это открытая дверь, в которую немедленно войдут «сходить в Redis за одним значением» и «дёрнуть сервис». Синхронная сигнатура делает нарушение невозможным, а не порицаемым. Тот же приём, что с фильтрами (§6): инвариант охраняется типом, а не дисциплиной.
 3. ~~**Ограничение на стадии 1?**~~ **РЕШЕНО: инвариант движка.** `limits.maxCandidates`, `limits.maxLimit`, `limits.timeoutMs` — обязательны, без дефолтов, отсутствие → ошибка `build()`. Плюс главное: бюджет **проталкивается** в провайдер (`RetrievalBudget`), а не применяется после (§6). Обрезка 1M строк после `SELECT` защищает выдачу, но не базу — то есть маскирует DOS, а не предотвращает.
 4. ~~**Node-only или изоморфность?**~~ **РЕШЕНО: изоморфно.** `@recoengine/core` не импортирует Node API вообще (проверяется в CI). Следствия, зафиксированные как контракт:
@@ -1668,6 +1725,26 @@ const result = await engine.recommend({
    - `@recoengine/domain-music` **не публикуется** — живёт в `examples/`, см. п. 7.
    - **Проверить до первой публикации:** занятость scope не подтверждена — npm отдаёт `403` на скриптовые запросы к веб-эндпоинтам, а `scope:` в поиске показывает лишь наличие *опубликованных пакетов*, что не доказывает отсутствия резервации. Достоверно только `npm org create recoengine` из-под авторизации. Это первое действие Этапа 0: если имя занято — решение пересматривается **до** того, как оно попадёт в тысячу импортов.
 7. **Что делать с `@recoengine/domain-music`?** Он в репозитории как пример, но публиковать его в npm — значит взять на себя поддержку музыкального домена. Предлагаю **не публиковать**: оставить в `examples/`, а не в `packages/`. Иначе библиотека снова начнёт выглядеть «музыкальной».
+
+### 23.-1 Ревизия 0.4 — сверка документа с самим собой
+
+Три круга точечных правок оставили хвосты. Аудит на консистентность нашёл девять расхождений; все исправлены. Два из них — содержательные, остальные — рассинхрон текста с принятыми решениями.
+
+| # | Что было не так | Тип |
+|---|---|---|
+| 1 | **Арифметика примера объяснения не сходилась**: Σ contributions = 0.80 при `baseScore: 89`. Документ об объяснимости нарушал собственный критерий приёмки из §21 («Σ contributions = score») | **содержательное** |
+| 2 | **`PostFilter` помечен доменным портом**, хотя получает `(row, view)` и видит только фичи. Счёт «5 из 18» тоже был неверен | **содержательное** |
+| 3 | §4: отсутствовал meta-пакет `recoengine`; `domain-music` лежал в `packages/`, что прямо противоречило §23.7 | рассинхрон |
+| 4 | §16: пример показывал удалённое поле `strategies` и старое имя `factors` | рассинхрон |
+| 5 | §11.2: формула ссылалась на `score(matrix)` вместо `score(view)` | рассинхрон |
+| 6 | «14 стадий» в двух местах после добавления 4b | рассинхрон |
+| 7 | `MutableProfileVector`, `DiagnosticsSink`, `NormalizedColumn` использовались, но не были определены | пробел |
+| 8 | §18: флагманский пример API не задавал обязательные `limits` — то есть падал бы на `build()` с `INVALID_CONFIG` | рассинхрон |
+| 9 | §7.1 и §7.3: диаграммы не пережили ревизий — не было prefilter/postfilter, профиля, бюджета, точек отмены | рассинхрон |
+
+Расхождения 1 и 8 стоит отметить особо: это ровно те места, где документ **учил неправильному**. Пример, который не сходится, и пример, который не запустится, — хуже отсутствия примера, потому что их копируют.
+
+Вывод на будущее: и то и другое обязано проверяться машиной, а не глазами. §21 уже требует golden-тест «Σ contributions = baseScore»; к нему добавляется извлечение примеров из `ARCHITECTURE.md` в компилируемый тест на Этапе 11. Пока библиотека не собрана, документ — единственный носитель правды, и он должен быть верен буквально.
 
 ### 23.0 Ревизия 0.3 — второй круг
 
