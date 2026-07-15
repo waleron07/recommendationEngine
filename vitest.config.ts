@@ -3,6 +3,11 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     include: ['packages/*/src/**/*.test.ts'],
+    // Benchmarks live outside the packages and outside `pnpm verify`: they measure, they
+    // do not assert, and a number that varies with the runner cannot gate a merge without
+    // turning CI into a coin toss. Run them with `pnpm bench` when a change should have
+    // moved one.
+    benchmark: { include: ['benchmarks/**/*.bench.ts'] },
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.ts'],

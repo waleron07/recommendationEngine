@@ -1,6 +1,7 @@
 import { contributionOf, ScoreBoardBuilder } from '../domain/score.js'
 import { topK } from '../math/heap.js'
 import { NORMALIZERS } from '../math/normalize.js'
+import { RRF_K, reciprocalRankNormalized } from '../math/rrf.js'
 import { toPresentation } from '../pipeline/stages/explanation.js'
 import type { Explainer } from '../ports/explainer.js'
 import type { Ranker } from '../ports/ranker.js'
@@ -45,6 +46,51 @@ export const weightedSum: ScoreCombiner = {
 }
 
 const reasonsFor = (column: NormalizedColumn, row: number) => column.reasons.get(row) ?? []
+
+/**
+ * Fuses columns by position instead of by value.
+ *
+ * For rankers you cannot calibrate against each other: a cosine and a BM25 both normalize
+ * into [0..1] and are *still* not comparable, because min-max only says where each sat
+ * within its own column. RRF reads "you were third", which means the same in every column.
+ *
+ * It re-ranks from `raw`, not from `normalized`, and that is not an oversight — RRF's
+ * whole point is that it does not trust the values. Stage 6 still runs (its checks are
+ * worth having either way) and this simply ignores the result.
+ *
+ * Expressed as additive contributions, so it survives the stage-8 rebuild: `Σ weight ×
+ * rrf / Σ weight` is a weighted mean of reciprocal ranks, and the denominator is identical
+ * for every row, so the order is exactly Σ weight × rrf. Explainability is intact —
+ * `contributions` still names who put each candidate where.
+ */
+export function rrfCombiner(k: number = RRF_K): ScoreCombiner {
+  return {
+    id: k === RRF_K ? 'rrf' : `rrf:${k}`,
+    combine: (columns) => {
+      const rows = columns[0]?.normalized.length ?? 0
+      const builder = new ScoreBoardBuilder(rows)
+
+      for (const column of columns) {
+        const fused = reciprocalRankNormalized(column.raw, k)
+        for (let row = 0; row < rows; row++) {
+          builder.add(
+            row,
+            contributionOf(
+              column.strategyId,
+              'additive',
+              column.raw[row] as number,
+              fused[row] as number,
+              column.weight,
+              reasonsFor(column, row),
+            ),
+          )
+        }
+      }
+
+      return builder.build()
+    },
+  }
+}
 
 /**
  * The default: rank everything.

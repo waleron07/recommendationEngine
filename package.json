@@ -15,6 +15,7 @@
     "typecheck": "tsc --build --force",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "vitest bench --run",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "check:arch": "node scripts/check-arch.mjs",
