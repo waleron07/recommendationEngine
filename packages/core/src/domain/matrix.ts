@@ -83,6 +83,35 @@ export class DenseFeatureMatrix implements FeatureMatrix {
     }
   }
 
+  /**
+   * A new matrix holding only `rows`, renumbered 0..n-1 in the order given.
+   *
+   * What stage 4b needs: a filter that runs after extraction removes candidates, and the
+   * matrix has to lose those rows with them. The alternative — keeping every row and
+   * carrying a "still alive" mask — would leak that mask into every stage downstream, so
+   * that each of them has to remember to consult it. One of them eventually would not.
+   *
+   * Copying is the honest cost: one pass over the kept cells, once per request.
+   */
+  select(rows: readonly number[]): DenseFeatureMatrix {
+    for (const row of rows) this.assertRow(row)
+
+    const out = new DenseFeatureMatrix(this.schema, rows.length)
+    for (const descriptor of this.schema.descriptors()) {
+      const arity = this.schema.arityOf(descriptor.key)
+      if (arity === 1) {
+        const source = this.column(descriptor.key)
+        const target = out.columnMut(descriptor.key)
+        for (let i = 0; i < rows.length; i++) target[i] = source[rows[i] as number] as number
+      } else {
+        for (let i = 0; i < rows.length; i++) {
+          out.vectorMut(descriptor.key, i).set(this.vector(descriptor.key, rows[i] as number))
+        }
+      }
+    }
+    return out
+  }
+
   get(key: FeatureKey, row: number): number {
     this.assertRow(row)
     const index = this.schema.indexOf(key)
