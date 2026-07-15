@@ -42,10 +42,10 @@ export class RecoError extends Error {
 
 /** Raised by `build()` when a strategy requires a feature nobody provides. */
 export class MissingFeatureError extends RecoError {
-  constructor(featureKey: string, requiredBy: string) {
+  constructor(featureKey: string, requiredBy: string, why = 'no extractor provides it') {
     super(
       'MISSING_FEATURE',
-      `Feature "${featureKey}" is required by "${requiredBy}" but no extractor provides it. ` +
+      `Feature "${featureKey}" is required by "${requiredBy}" but ${why}. ` +
         `Register an extractor that declares it, or remove "${requiredBy}".`,
     )
     this.name = 'MissingFeatureError'

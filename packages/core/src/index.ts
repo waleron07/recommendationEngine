@@ -11,6 +11,7 @@
 export type { Brand } from './domain/brand.js'
 export { type Candidate, type CandidateSet, CandidateSetBuilder } from './domain/candidate.js'
 export type { Event, EventType, History, Item, User } from './domain/entities.js'
+export type { Explanation, ScoreTrace } from './domain/explanation.js'
 export {
   type FeatureDescriptor,
   type FeatureKind,
@@ -42,11 +43,23 @@ export type { Reason } from './domain/reason.js'
 export {
   type ContributionKind,
   contributionOf,
+  type MutableScoreBoard,
   type ScoreBoard,
   ScoreBoardBuilder,
   type ScoreColumn,
   type ScoreContribution,
 } from './domain/score.js'
+export { createEngine, type EngineBlueprint, EngineBuilder } from './kernel/builder.js'
+export {
+  type ConfigIssue,
+  ConfigResolver,
+  type ConfigSchema,
+  type DeepPartial,
+  type EngineConfig,
+  type ErrorPolicy,
+  type ResolvedConfig,
+} from './kernel/config.js'
+export { type Binding, type Container, DefaultContainer } from './kernel/container.js'
 export {
   BuilderSealedError,
   FeatureCollisionError,
@@ -54,3 +67,7 @@ export {
   RecoError,
   type RecoErrorCode,
 } from './kernel/errors.js'
+export { asPlugin, isPlugin, type Plugin, type Usable } from './kernel/plugin.js'
+export type { Registry, ResolvedRegistry, SlotOptions } from './kernel/registry.js'
+export { CACHE, CLOCK, LOGGER, METRICS, RNG, type Token, token } from './kernel/token.js'
+export * from './ports/index.js'

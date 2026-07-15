@@ -55,6 +55,19 @@ export interface ScoreBoard {
 }
 
 /**
+ * Write side of the board, open during stages 7–8 and closed by `build()`.
+ *
+ * `ScoreModifier` needs this and not `ScoreBoard`: a frozen board plus a `void` return
+ * leaves a modifier no way to do its job. Fatigue does not read the base score — it
+ * reads history and features and states its multiplier — so the write-only view is not
+ * a restriction, it is the whole contract.
+ */
+export interface MutableScoreBoard {
+  readonly rows: number
+  add(row: number, contribution: ScoreContribution): void
+}
+
+/**
  * Accumulates contributions, then folds them per ARCHITECTURE.md §11.2:
  *
  * ```
@@ -69,7 +82,7 @@ export interface ScoreBoard {
  * `applicable() === false` simply leaves its weight out of both sums, and the rest
  * reweight themselves.
  */
-export class ScoreBoardBuilder {
+export class ScoreBoardBuilder implements MutableScoreBoard {
   readonly rows: number
   private readonly perRow: ScoreContribution[][]
 
