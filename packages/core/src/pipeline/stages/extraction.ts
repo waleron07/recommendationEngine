@@ -7,7 +7,15 @@ import type { FeatureExtractor, UserFeatureExtractor } from '../../ports/feature
 import { degradeOrThrow, type PolicyContext, warn } from '../policy.js'
 
 export interface Extracted {
-  readonly matrix: FeatureMatrix
+  /**
+   * The concrete matrix, not the `FeatureMatrix` interface.
+   *
+   * The pipeline owns the implementation — it allocated it — and stage 4b needs
+   * `select()` to renumber rows. Ports still receive the interface, so `select` stays out
+   * of the extension contract, where it would oblige every future matrix to implement a
+   * row-compaction scheme it may have no use for.
+   */
+  readonly matrix: DenseFeatureMatrix
   readonly profile: ProfileVector
   /** Profile features nobody could compute. Strategies that need them stand down (§17.2). */
   readonly degradedProfile: ReadonlySet<string>

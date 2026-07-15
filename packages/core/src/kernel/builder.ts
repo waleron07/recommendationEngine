@@ -218,6 +218,11 @@ export class EngineBuilder<P = unknown> implements Registry<P> {
   /**
    * Runs the lifecycle of §8.3 and seals the builder.
    *
+   * Named `resolve` rather than `build`, because assembling a validated registry and
+   * instantiating an engine are two jobs and the kernel only does the first. `build()` in
+   * `engine/` calls this, fills the empty slots with defaults and wraps the result — which
+   * is why the kernel can refuse to invent a ranker while an empty engine still runs.
+   *
    * The order differs from the document in one place, deliberately: config is validated
    * *after* `register()`, not before. It has to be — `weights` are checked against the
    * registered strategies, and before `register()` there are none. Validating in two
@@ -225,10 +230,10 @@ export class EngineBuilder<P = unknown> implements Registry<P> {
    * which is exactly the "fix one thing per restart" experience the resolver's issue list
    * exists to avoid.
    */
-  build(): EngineBlueprint<P> {
-    this.assertOpen('build')
-    // Sealed up front, so build() is one-shot whatever the outcome. Registration mutates
-    // the schema and the slots as it goes, so a build that failed halfway leaves a
+  resolve(): EngineBlueprint<P> {
+    this.assertOpen('resolve')
+    // Sealed up front, so this is one-shot whatever the outcome. Registration mutates the
+    // schema and the slots as it goes, so a run that failed halfway leaves a
     // half-registered builder; running it again would replay every write on top of that
     // and report the replay ("two strategies share the id artist") instead of the real
     // fault. A failed build is a failed startup — fix the cause and construct a new
@@ -385,10 +390,12 @@ function mergePatch<T>(base: DeepPartial<T>, patch: DeepPartial<T>): DeepPartial
 }
 
 /**
- * Entry point. `createEngine<Track>()` is what types the whole chain: a
- * `DomainScoringStrategy<Movie>` will not register here, and the compiler says so at the
- * `use()` that tried.
+ * A builder that resolves but does not build.
+ *
+ * The public entry point is `createEngine()` in `engine/`: it returns a subclass whose
+ * `build()` returns an engine. This one exists for anything that wants the validated
+ * registry without a pipeline around it — chiefly the kernel's own tests.
  */
-export function createEngine<P = unknown>(): EngineBuilder<P> {
+export function createRegistry<P = unknown>(): EngineBuilder<P> {
   return new EngineBuilder<P>()
 }

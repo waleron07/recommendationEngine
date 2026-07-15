@@ -56,7 +56,20 @@ export {
   type ScoreColumn,
   type ScoreContribution,
 } from './domain/score.js'
-export { createEngine, type EngineBlueprint, EngineBuilder } from './kernel/builder.js'
+export {
+  DEFAULT_NORMALIZERS,
+  defaultExplainer,
+  minmax,
+  sortRanker,
+  weightedSum,
+} from './engine/defaults.js'
+export {
+  createEngine,
+  type EngineBuilderWithDefaults,
+  type EngineDescription,
+  type RecommendationEngine,
+} from './engine/engine.js'
+export { createRegistry, type EngineBlueprint, EngineBuilder } from './kernel/builder.js'
 export {
   type ConfigIssue,
   ConfigResolver,

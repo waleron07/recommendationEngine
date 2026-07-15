@@ -9,7 +9,7 @@ import {
   isDomainStrategy,
   type ScoringStrategy,
 } from '../ports/scoring-strategy.js'
-import { createEngine, type EngineBuilder } from './builder.js'
+import { createRegistry, type EngineBuilder } from './builder.js'
 import type { RecoError } from './errors.js'
 import type { Plugin } from './plugin.js'
 import type { Registry } from './registry.js'
@@ -58,7 +58,7 @@ const strategy = (id: string, requires: string[] = [], requiresProfile?: string[
 
 const ranker = (id: string) => ({ id, rank: () => [] })
 
-const configured = (): EngineBuilder => createEngine().configure({ limits: LIMITS })
+const configured = (): EngineBuilder => createRegistry().configure({ limits: LIMITS })
 
 const failure = (fn: () => unknown): RecoError => {
   try {
@@ -79,7 +79,7 @@ describe('acceptance (§22, stage 2)', () => {
       },
     }
 
-    const error = failure(() => configured().use(musicPlugin).build())
+    const error = failure(() => configured().use(musicPlugin).resolve())
 
     expect(error.code).toBe('MISSING_FEATURE')
     expect(error.message).toContain('affinity_artist')
@@ -87,7 +87,7 @@ describe('acceptance (§22, stage 2)', () => {
 
   it('rejects use() after build(), because a reference to the builder may have been kept', () => {
     const builder = configured()
-    builder.build()
+    builder.resolve()
 
     const error = failure(() => builder.use(strategy('late')))
     expect(error.code).toBe('BUILDER_SEALED')
@@ -100,27 +100,27 @@ describe('the mutability boundary is build()', () => {
     ['use', (b: EngineBuilder) => b.use(strategy('late'))],
     ['configure', (b: EngineBuilder) => b.configure({ diversity: { lambda: 0.1 } })],
     ['provide', (b: EngineBuilder) => b.provide(CLOCK, { now: () => 0 } as unknown as Clock)],
-    ['build', (b: EngineBuilder) => b.build()],
+    ['build', (b: EngineBuilder) => b.resolve()],
     ['addStrategy', (b: EngineBuilder) => b.addStrategy(strategy('late'))],
     ['addExtractor', (b: EngineBuilder) => b.addExtractor(extractor('late', []))],
     ['setRanker', (b: EngineBuilder) => b.setRanker(ranker('late'))],
   ])('rejects %s() once sealed', (_label, operation) => {
     const builder = configured()
-    builder.build()
+    builder.resolve()
 
     expect(failure(() => operation(builder)).code).toBe('BUILDER_SEALED')
   })
 
   it('refuses to register a feature into the schema after the freeze', () => {
     const builder = configured()
-    const blueprint = builder.build()
+    const blueprint = builder.resolve()
 
     expect(failure(() => builder.schema.register(descriptor('late', 'nobody'))).code).toBe('BUILDER_SEALED')
     expect(blueprint.registry.schema.has(featureKey('late'))).toBe(false)
   })
 
   it('freezes the blueprint and its registry, so concurrent requests cannot race on them', () => {
-    const blueprint = configured().build()
+    const blueprint = configured().resolve()
 
     expect(Object.isFrozen(blueprint)).toBe(true)
     expect(Object.isFrozen(blueprint.registry)).toBe(true)
@@ -128,7 +128,7 @@ describe('the mutability boundary is build()', () => {
   })
 
   it('seals the container: the engine binds before build(), never during a request', () => {
-    const blueprint = configured().build()
+    const blueprint = configured().resolve()
 
     expect(
       failure(() => blueprint.container.bind(CLOCK).toValue({ now: () => 0 } as unknown as Clock)).code,
@@ -140,12 +140,12 @@ describe('the mutability boundary is build()', () => {
     // wreckage of a failed run would report the replay ("two strategies share the id")
     // rather than the fault. A failed build is a failed startup: fix it, build a new one.
     const builder = configured().use(strategy('artist', ['affinity_artist']))
-    expect(failure(() => builder.build()).code).toBe('MISSING_FEATURE')
+    expect(failure(() => builder.resolve()).code).toBe('MISSING_FEATURE')
 
     expect(failure(() => builder.use(extractor('artist-extractor', ['affinity_artist']))).code).toBe(
       'BUILDER_SEALED',
     )
-    expect(failure(() => builder.build()).code).toBe('BUILDER_SEALED')
+    expect(failure(() => builder.resolve()).code).toBe('BUILDER_SEALED')
   })
 
   it('sorts the builder into a fresh engine after a failed one, without shared state', () => {
@@ -153,7 +153,7 @@ describe('the mutability boundary is build()', () => {
       configured()
         .use(strategy('artist', ['affinity_artist']))
         .use(extractor('artist-extractor', ['affinity_artist']))
-        .build(),
+        .resolve(),
     ).not.toThrow()
   })
 })
@@ -162,7 +162,7 @@ describe('feature declarations', () => {
   it('registers what a port provides, so a port cannot forget to declare its own features', () => {
     const blueprint = configured()
       .use(extractor('artist', ['affinity_artist']))
-      .build()
+      .resolve()
 
     expect(blueprint.registry.schema.has(featureKey('affinity_artist'))).toBe(true)
     expect(blueprint.registry.schema.descriptor(featureKey('affinity_artist')).owner).toBe('artist')
@@ -173,7 +173,7 @@ describe('feature declarations', () => {
       configured()
         .use(extractor('global', ['popularity']))
         .use(extractor('cohort', ['popularity']))
-        .build(),
+        .resolve(),
     )
 
     expect(error.code).toBe('FEATURE_COLLISION')
@@ -190,7 +190,7 @@ describe('feature declarations', () => {
       extract: async () => {},
     }
 
-    const error = failure(() => configured().use(liar).build())
+    const error = failure(() => configured().use(liar).resolve())
     expect(error.code).toBe('INVALID_CONFIG')
     expect(error.message).toMatch(/invalidates the feature cache/i)
   })
@@ -203,7 +203,7 @@ describe('feature declarations', () => {
       extract: async () => {},
     }
 
-    expect(failure(() => configured().use(stale).build()).code).toBe('INVALID_CONFIG')
+    expect(failure(() => configured().use(stale).resolve()).code).toBe('INVALID_CONFIG')
   })
 
   it('keeps item and profile features in separate schemas', () => {
@@ -211,7 +211,7 @@ describe('feature declarations', () => {
       .use(extractor('item-genre', ['affinity_genre']))
       .use(userExtractor('profile-genre', ['affinity_genre']))
       .use(strategy('genre', ['affinity_genre'], ['affinity_genre']))
-      .build()
+      .resolve()
 
     expect(blueprint.registry.schema.has(featureKey('affinity_genre'))).toBe(true)
     expect(blueprint.registry.profileSchema.has(featureKey('affinity_genre'))).toBe(true)
@@ -226,7 +226,7 @@ describe('feature declarations', () => {
       .use(extractor('pop', ['popularity']))
       .use(transform('scale', ['popularity_log'], ['popularity_scaled']))
       .use(transform('log1p', ['popularity'], ['popularity_log']))
-      .build()
+      .resolve()
 
     expect(blueprint.registry.transforms.map((t) => t.id)).toEqual(['log1p', 'scale'])
   })
@@ -234,7 +234,7 @@ describe('feature declarations', () => {
 
 describe('slots', () => {
   it('refuses a second claim on a single slot without an explicit override', () => {
-    const error = failure(() => configured().use(ranker('first')).use(ranker('second')).build())
+    const error = failure(() => configured().use(ranker('first')).use(ranker('second')).resolve())
 
     expect(error.code).toBe('SLOT_CONFLICT')
     expect(error.message).toContain('ranker')
@@ -244,7 +244,7 @@ describe('slots', () => {
     const builder = configured().use(ranker('default'))
     builder.setRanker(ranker('custom'), { override: true })
 
-    expect(builder.build().registry.ranker?.id).toBe('custom')
+    expect(builder.resolve().registry.ranker?.id).toBe('custom')
   })
 
   it('names the plugin that claimed the slot first', () => {
@@ -254,12 +254,12 @@ describe('slots', () => {
       register: (registry: Registry) => registry.setRanker(ranker('default')),
     }
 
-    const error = failure(() => configured().use(claimant).use(ranker('mine')).build())
+    const error = failure(() => configured().use(claimant).use(ranker('mine')).resolve())
     expect(error.message).toContain('defaults')
   })
 
   it('leaves unclaimed slots empty rather than inventing a ranker', () => {
-    const blueprint = configured().build()
+    const blueprint = configured().resolve()
 
     expect(blueprint.registry.ranker).toBeUndefined()
     expect(blueprint.registry.combiner).toBeUndefined()
@@ -267,14 +267,14 @@ describe('slots', () => {
   })
 
   it('refuses two strategies under one id, since the id is also the weight key', () => {
-    const error = failure(() => configured().use(strategy('affinity')).use(strategy('affinity')).build())
+    const error = failure(() => configured().use(strategy('affinity')).use(strategy('affinity')).resolve())
 
     expect(error.code).toBe('SLOT_CONFLICT')
     expect(error.message).toMatch(/weight/i)
   })
 
   it('allows one strategy class registered twice under different ids', () => {
-    const blueprint = configured().use(strategy('artist')).use(strategy('genre')).build()
+    const blueprint = configured().use(strategy('artist')).use(strategy('genre')).resolve()
 
     expect(blueprint.registry.strategies.map((s) => s.id)).toEqual(['artist', 'genre'])
   })
@@ -303,7 +303,7 @@ describe('every port reaches its own slot', () => {
       .use({ id: 'default-explainer', explain: () => ({}) as never })
       .use({ id: 'epsilon-greedy', blend: () => [] })
       .use({ id: 'bandit', weights: () => new Map() })
-      .build()
+      .resolve()
 
     const { registry } = blueprint
     expect(registry.providers.map((p) => p.id)).toEqual(['library'])
@@ -325,7 +325,7 @@ describe('every port reaches its own slot', () => {
 
   it('accepts a domain strategy, which is typed to the engine it registers in', () => {
     // The escape hatch of §11.1: allowed, but priced at the type level — a
-    // DomainScoringStrategy<Track> will not compile into a createEngine<Movie>().
+    // DomainScoringStrategy<Track> will not compile into a createRegistry<Movie>().
     const domainStrategy: DomainScoringStrategy<{ title: string }> = {
       id: strategyId('title-length'),
       requires: [],
@@ -333,10 +333,10 @@ describe('every port reaches its own slot', () => {
       score: () => ({ strategyId: strategyId('title-length'), raw: new Float64Array(0), reasons: new Map() }),
     }
 
-    const blueprint = createEngine<{ title: string }>()
+    const blueprint = createRegistry<{ title: string }>()
       .configure({ limits: LIMITS })
       .use(domainStrategy)
-      .build()
+      .resolve()
 
     expect(blueprint.registry.strategies.map((s) => s.id)).toEqual(['title-length'])
     expect(
@@ -355,7 +355,7 @@ describe('every port reaches its own slot', () => {
     builder.use({ id: 'first', rank: () => [] })
     builder.setRanker({ id: 'second', rank: () => [] }, { override: true })
 
-    expect(builder.build().registry.ranker?.id).toBe('second')
+    expect(builder.resolve().registry.ranker?.id).toBe('second')
   })
 
   it('accepts every port written straight onto the builder, exactly as use() would', () => {
@@ -376,7 +376,7 @@ describe('every port reaches its own slot', () => {
     builder.setBlender({ id: 'epsilon-greedy', blend: () => [] })
     builder.setWeightProvider({ id: 'bandit', weights: () => new Map() })
 
-    const { registry } = builder.build()
+    const { registry } = builder.resolve()
     expect(registry.providers).toHaveLength(1)
     expect(registry.preFilters).toHaveLength(1)
     expect(registry.postFilters).toHaveLength(1)
@@ -410,7 +410,7 @@ describe('plugins', () => {
     configured()
       .use(record('features', ['base']))
       .use(record('base'))
-      .build()
+      .resolve()
     expect(order).toEqual(['base', 'features'])
   })
 
@@ -423,7 +423,7 @@ describe('plugins', () => {
         register: () => {},
       })
       .use({ name: pluginName('a'), version: '1', register: () => {} })
-      .build()
+      .resolve()
 
     expect(blueprint.plugins.map((p) => p.name)).toEqual(['a', 'b'])
   })
@@ -432,7 +432,7 @@ describe('plugins', () => {
     const register = vi.fn()
     const blueprint = configured()
       .use({ name: pluginName('p'), version: '1', register })
-      .build()
+      .resolve()
 
     expect(register).toHaveBeenCalledTimes(1)
     expect(register.mock.calls[0]?.[1]).toBe(blueprint.container)
@@ -451,7 +451,7 @@ describe('plugins', () => {
           seen = container.get(CLOCK)
         },
       })
-      .build()
+      .resolve()
 
     expect(seen).toBe(clock)
   })
@@ -473,13 +473,13 @@ describe('plugins', () => {
       register: () => {},
     }
 
-    expect(configured().use(withConfig).build().config.plugins.music).toEqual({ halfLife: 30 })
+    expect(configured().use(withConfig).resolve().config.plugins.music).toEqual({ halfLife: 30 })
 
     const error = failure(() =>
       configured()
         .use(withConfig)
         .configure({ plugins: { music: { halfLife: -5 } } })
-        .build(),
+        .resolve(),
     )
     expect(error.message).toContain('plugins.music.halfLife')
   })
@@ -492,7 +492,7 @@ describe('plugins', () => {
     }
 
     // Registered twice, its extractor would collide its own feature key against itself.
-    const blueprint = configured().use(plugin).use(plugin).build()
+    const blueprint = configured().use(plugin).use(plugin).resolve()
     expect(blueprint.registry.extractors).toHaveLength(1)
   })
 })
@@ -501,14 +501,14 @@ describe('config', () => {
   it('validates weights against strategies that only exist after register()', () => {
     // Why config is resolved after registration and not before it, as §8.3 had it.
     const error = failure(() =>
-      createEngine()
+      createRegistry()
         .configure({ limits: LIMITS, weights: { artist: 0.9 } })
         .use({
           name: pluginName('music'),
           version: '1',
           register: (registry) => registry.addStrategy(strategy('genre')),
         })
-        .build(),
+        .resolve(),
     )
 
     expect(error.code).toBe('INVALID_CONFIG')
@@ -516,29 +516,29 @@ describe('config', () => {
   })
 
   it('resolves weights for the strategies a plugin registered', () => {
-    const blueprint = createEngine()
+    const blueprint = createRegistry()
       .configure({ limits: LIMITS, weights: { genre: 0.6 } })
       .use({
         name: pluginName('music'),
         version: '1',
         register: (registry) => registry.addStrategy(strategy('genre')),
       })
-      .build()
+      .resolve()
 
     expect(blueprint.config.weights.get(strategyId('genre'))).toBe(0.6)
   })
 
   it('merges repeated configure() calls leaf by leaf', () => {
-    const blueprint = createEngine()
+    const blueprint = createRegistry()
       .configure({ limits: LIMITS, fatigue: { threshold: 50 } })
       .configure({ fatigue: { threshold: 80 } })
-      .build()
+      .resolve()
 
     expect(blueprint.config.fatigue.threshold).toBe(80)
     expect(blueprint.config.limits).toEqual(LIMITS)
   })
 
   it('fails without limits, whatever else is configured', () => {
-    expect(failure(() => createEngine().use(ranker('topk')).build()).code).toBe('INVALID_CONFIG')
+    expect(failure(() => createRegistry().use(ranker('topk')).resolve()).code).toBe('INVALID_CONFIG')
   })
 })
