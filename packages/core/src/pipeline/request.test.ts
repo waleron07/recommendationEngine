@@ -43,6 +43,13 @@ const request = (overrides: Partial<RecommendationRequest> = {}): Recommendation
   ...overrides,
 })
 
+/** Resolves when the signal aborts. No deadline of its own: vitest already has one. */
+const aborted = (signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal.aborted) return resolve()
+    signal.addEventListener('abort', () => resolve(), { once: true })
+  })
+
 const failure = (fn: () => unknown): RecoError => {
   try {
     fn()
@@ -136,7 +143,11 @@ describe('cancellation (§17.1)', () => {
     )
     const ctx = resolveRequest(request({ signal: new AbortController().signal }), deps({ config: short }))
 
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Waits for the abort event rather than sleeping and hoping. A fixed sleep is a race
+    // with the scheduler: it held here every time and lost on a loaded CI runner, which is
+    // the worst way to learn a test is timing-dependent. If the signal never fires, the
+    // test times out — which is the failure we actually want to hear about.
+    await aborted(ctx.signal)
     expect(ctx.signal.aborted).toBe(true)
   })
 })
