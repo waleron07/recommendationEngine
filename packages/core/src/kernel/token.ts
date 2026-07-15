@@ -28,7 +28,7 @@ export function token<T>(description: string): Token<T> {
  * The infrastructure the engine binds for itself. Everything else is the host's.
  *
  * They are tokens rather than constructor parameters because they are needed deep inside
- * the pipeline, and threading a `Clock` through fourteen stages to reach one modifier is
+ * the pipeline, and threading a `Clock` through sixteen stages to reach one modifier is
  * how a codebase acquires a `god object` parameter.
  */
 export const CLOCK: Token<Clock> = token<Clock>('Clock')

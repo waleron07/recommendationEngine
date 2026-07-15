@@ -29,7 +29,7 @@ export interface PipelineDeps {
 }
 
 /**
- * One request, fourteen stages, in the order §3 argues for.
+ * One request, sixteen stages, in the order §3 argues for.
  *
  * Straight-line code rather than a list of stage objects, and that is the design: the
  * sequence is fixed. A pipeline anyone can splice into is a pipeline nobody can reason

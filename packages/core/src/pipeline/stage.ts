@@ -4,7 +4,7 @@ import type { Clock } from '../ports/infra.js'
 import type { StageInfo, StageMiddleware } from '../ports/middleware.js'
 
 /**
- * The fourteen stages, in order. Fixed, and deliberately not extensible.
+ * The sixteen stages, in order. Fixed, and deliberately not extensible.
  *
  * Extension happens through ports, never by inserting a stage: a pipeline anyone can
  * splice into is a pipeline nobody can reason about, because the answer to "when does my
