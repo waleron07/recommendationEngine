@@ -1,38 +1,11 @@
 import { contributionOf, ScoreBoardBuilder } from '../domain/score.js'
+import { topK } from '../math/heap.js'
+import { NORMALIZERS } from '../math/normalize.js'
 import { toPresentation } from '../pipeline/stages/explanation.js'
 import type { Explainer } from '../ports/explainer.js'
 import type { Ranker } from '../ports/ranker.js'
 import type { ScoreCombiner } from '../ports/score-combiner.js'
 import type { NormalizedColumn, ScoreNormalizer } from '../ports/score-normalizer.js'
-
-/**
- * Min-max: the honest default, and the one whose failure mode is visible.
- *
- * A flat column (every candidate equally popular) has no spread to normalize, and every
- * answer is a lie of some kind. Zero says "none of these are popular", which at least
- * contributes nothing to the sum; 0.5 or 1 would say "all of these are somewhat popular"
- * and quietly hand the column real influence over the ranking on the strength of no
- * information at all.
- */
-export const minmax: ScoreNormalizer = {
-  id: 'minmax',
-  normalize: (raw) => {
-    const out = new Float64Array(raw.length)
-    if (raw.length === 0) return out
-
-    let min = Number.POSITIVE_INFINITY
-    let max = Number.NEGATIVE_INFINITY
-    for (const value of raw) {
-      if (value < min) min = value
-      if (value > max) max = value
-    }
-
-    const span = max - min
-    if (span === 0) return out
-    for (let i = 0; i < raw.length; i++) out[i] = ((raw[i] as number) - min) / span
-    return out
-  },
-}
 
 /**
  * Weighted sum: `base = Σ(weight × normalized) / Σ weight` (§11.2).
@@ -74,12 +47,18 @@ export const weightedSum: ScoreCombiner = {
 const reasonsFor = (column: NormalizedColumn, row: number) => column.reasons.get(row) ?? []
 
 /**
- * Ranking by full sort, for now.
+ * The default: rank everything.
  *
- * §22 puts the top-K heap in stage 4 with the rest of the maths, and a heap is the right
- * answer: ordering 5000 rows to show 20 is 4980 comparisons nobody reads. This is
- * `Array.sort` until then — correct, obvious, and replaceable behind the same port
- * without anything else noticing.
+ * A full sort, deliberately, even though §22 puts a top-K heap in the maths and the heap
+ * is genuinely faster. The heap is only faster when K is much smaller than n, and *what K
+ * may be is not the ranker's decision to make*: whatever it keeps is all that
+ * diversification and exploration will ever see. Cut to the page and MMR has nothing to
+ * swap in; cut to the top few hundred and a `discover` bucket can no longer reach the
+ * long tail it exists to surface.
+ *
+ * So the engine ranks the lot and leaves the pool to whoever knows what it is for. Use
+ * `topKRanker(pool)` when that is you. The tension is real and its owner is the diversity
+ * package, which is where it will be settled.
  *
  * Ties break on the row index rather than arbitrarily. `Array.sort` is stable in every
  * runtime the matrix names, but relying on that would leave the guarantee unstated: two
@@ -93,6 +72,22 @@ export const sortRanker: Ranker = {
     rows.sort((a, b) => board.final(b) - board.final(a) || a - b)
     return rows
   },
+}
+
+/**
+ * Ranking that keeps only the best `pool` candidates.
+ *
+ * O(n log pool) and an array of `pool` rather than of n — the right answer once you know
+ * what the pool is for. That number is yours to choose because only you know what runs
+ * after ranking: it must cover the page, plus whatever diversification will reject, plus
+ * whatever exploration wants to reach for. A pool equal to the page means MMR can only
+ * permute what it was given.
+ */
+export function topKRanker(pool: number): Ranker {
+  return {
+    id: `top-${pool}`,
+    rank: (board) => topK(board.rows, pool, (row) => board.final(row)),
+  }
 }
 
 /**
@@ -121,8 +116,16 @@ export const defaultExplainer: Explainer = {
   },
 }
 
-/** Built-in normalizers, by id. What `normalization.default` resolves against. */
-export const DEFAULT_NORMALIZERS: ReadonlyMap<string, ScoreNormalizer> = new Map([[minmax.id, minmax]])
+/**
+ * Built-in normalizers, by id. What `normalization.default` resolves against.
+ *
+ * All of §12's are here, so `normalization: { default: 'rank' }` works with nothing
+ * registered. `minmax` stays the default: it is the one whose behaviour you can predict
+ * from the data, and its weakness (outliers) is visible rather than subtle.
+ */
+export const DEFAULT_NORMALIZERS: ReadonlyMap<string, ScoreNormalizer> = new Map(
+  NORMALIZERS.map((normalizer) => [normalizer.id, normalizer]),
+)
 
 /** Fills a slot only if nobody claimed it, so `.use(myRanker)` never fights the default. */
 export function fillSlot<T>(claimed: T | undefined, fallback: T): T {

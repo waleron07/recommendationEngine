@@ -59,8 +59,8 @@ export {
 export {
   DEFAULT_NORMALIZERS,
   defaultExplainer,
-  minmax,
   sortRanker,
+  topKRanker,
   weightedSum,
 } from './engine/defaults.js'
 export {
@@ -90,6 +90,9 @@ export {
 export { asPlugin, isPlugin, type Plugin, type Usable } from './kernel/plugin.js'
 export type { Registry, ResolvedRegistry, SlotOptions } from './kernel/registry.js'
 export { CACHE, CLOCK, LOGGER, METRICS, RNG, type Token, token } from './kernel/token.js'
+export { topK } from './math/heap.js'
+export { identity, minmax, NORMALIZERS, rank, sigmoid, sigmoidScaled, zscore } from './math/normalize.js'
+export { Xoshiro128 } from './math/rng.js'
 export { FilterErrorBudget, isAbort } from './pipeline/policy.js'
 export { deadlineOf, type RecommendationRequest, resolveRequest } from './pipeline/request.js'
 export { DiagnosticsCollector, STAGES, type StageId, stageInfo } from './pipeline/stage.js'

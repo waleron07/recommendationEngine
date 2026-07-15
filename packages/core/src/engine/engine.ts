@@ -4,6 +4,7 @@ import { type EngineBlueprint, EngineBuilder } from '../kernel/builder.js'
 import type { Container } from '../kernel/container.js'
 import type { ResolvedRegistry } from '../kernel/registry.js'
 import { CLOCK, LOGGER, METRICS, RNG } from '../kernel/token.js'
+import { Xoshiro128 } from '../math/rng.js'
 import { runPipeline } from '../pipeline/pipeline.js'
 import type { RecommendationRequest } from '../pipeline/request.js'
 import type { Clock, Logger, Rng } from '../ports/infra.js'
@@ -52,7 +53,7 @@ class Engine<P, UP> implements RecommendationEngine<P, UP> {
       // Resolved per request rather than cached in a field: a host may rebind the clock on
       // a child container, and reading through the container is what makes that work.
       clock: container.tryGet(CLOCK) ?? systemClock,
-      rng: container.tryGet(RNG) ?? unseededRng,
+      rng: container.tryGet(RNG) ?? defaultRng,
       logger: container.tryGet(LOGGER) ?? silentLogger,
       metrics: container.tryGet(METRICS),
       normalizers: this.normalizers,
@@ -131,15 +132,15 @@ const systemClock: Clock = { now: () => timestamp(Date.now()) }
 const silentLogger: Logger = { debug: () => {}, warn: () => {} }
 
 /**
- * A deliberately poor rng, and a temporary one.
+ * Seeded, and therefore replayable, straight out of the box.
  *
- * `Math.random()` cannot be seeded, so exploration through it is unreplayable — the exact
- * property §23.4 rules out. The real xoroshiro128+ arrives with the maths in stage 4; this
- * keeps an engine with no exploration working until then, and an engine *with* exploration
- * honest about being unreproducible until the host binds its own.
+ * The constant seed is the point rather than an oversight: an engine nobody configured
+ * still produces the same feed for the same user twice, so a bug report can be reproduced
+ * and an A/B test measures its variant. A host that wants different engines to explore
+ * differently binds its own `RNG` with its own seed — but the default is reproducible,
+ * because the unreproducible one is what §23.4 exists to forbid.
+ *
+ * `exploration.seed` from the config forks off this per request (see `resolveRequest`),
+ * so the usual way to vary exploration is config, not a different generator.
  */
-const unseededRng: Rng = {
-  next: () => Math.random(),
-  int: (maxExclusive) => Math.floor(Math.random() * maxExclusive),
-  fork: () => unseededRng,
-}
+const defaultRng: Rng = new Xoshiro128('recoengine')
