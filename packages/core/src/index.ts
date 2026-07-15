@@ -40,6 +40,13 @@ export {
 export { DenseFeatureMatrix, type FeatureMatrix } from './domain/matrix.js'
 export { DenseProfileVector, type MutableProfileVector, type ProfileVector } from './domain/profile.js'
 export type { Reason } from './domain/reason.js'
+export type {
+  Diagnostics,
+  DiagnosticWarning,
+  Recommendation,
+  RecommendationResult,
+  StageTiming,
+} from './domain/recommendation.js'
 export {
   type ContributionKind,
   contributionOf,
@@ -70,4 +77,7 @@ export {
 export { asPlugin, isPlugin, type Plugin, type Usable } from './kernel/plugin.js'
 export type { Registry, ResolvedRegistry, SlotOptions } from './kernel/registry.js'
 export { CACHE, CLOCK, LOGGER, METRICS, RNG, type Token, token } from './kernel/token.js'
+export { FilterErrorBudget, isAbort } from './pipeline/policy.js'
+export { deadlineOf, type RecommendationRequest, resolveRequest } from './pipeline/request.js'
+export { DiagnosticsCollector, STAGES, type StageId, stageInfo } from './pipeline/stage.js'
 export * from './ports/index.js'

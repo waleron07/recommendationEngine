@@ -1,8 +1,11 @@
 import type { User } from '../domain/entities.js'
 import type { HistoryIndex } from '../domain/history.js'
 import type { Timestamp } from '../domain/ids.js'
+import type { DiagnosticWarning } from '../domain/recommendation.js'
 import type { ResolvedConfig } from '../kernel/config.js'
 import type { Logger, Rng } from './infra.js'
+
+export type { DiagnosticWarning }
 
 /**
  * How the engine behaves when this extension throws. Default: `'required'` — fail loudly.
@@ -27,15 +30,6 @@ export interface Criticality {
 export interface RetrievalBudget {
   readonly maxItems: number
   readonly deadline: Timestamp
-}
-
-/** Structured warning. Diagnostics are part of the response, not a line in a log file. */
-export interface DiagnosticWarning {
-  readonly stage: string
-  readonly port: string
-  readonly code: 'port_failed' | 'not_applicable' | 'degraded' | 'quota_unfilled' | 'schema_default'
-  readonly message: string
-  readonly cause?: unknown
 }
 
 /**
