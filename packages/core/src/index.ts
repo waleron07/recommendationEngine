@@ -9,6 +9,7 @@
  */
 
 export type { Brand } from './domain/brand.js'
+export { type Candidate, type CandidateSet, CandidateSetBuilder } from './domain/candidate.js'
 export type { Event, EventType, History, Item, User } from './domain/entities.js'
 export {
   type FeatureDescriptor,
@@ -37,6 +38,15 @@ export {
 } from './domain/ids.js'
 export { DenseFeatureMatrix, type FeatureMatrix } from './domain/matrix.js'
 export { DenseProfileVector, type MutableProfileVector, type ProfileVector } from './domain/profile.js'
+export type { Reason } from './domain/reason.js'
+export {
+  type ContributionKind,
+  contributionOf,
+  type ScoreBoard,
+  ScoreBoardBuilder,
+  type ScoreColumn,
+  type ScoreContribution,
+} from './domain/score.js'
 export {
   BuilderSealedError,
   FeatureCollisionError,

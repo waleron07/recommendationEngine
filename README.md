@@ -80,8 +80,8 @@ Stage 0 (scaffold) is done. Stages follow [ARCHITECTURE.md §22](./ARCHITECTURE.
 | Stage | Content | Status |
 |---|---|---|
 | 0 | Workspace, TS, Biome, Vitest, Typedoc, CI, architecture guard | done |
-| 1 | Domain: ids, `FeatureMatrix`, `ProfileVector`, `ScoreBoard`, `HistoryIndex` | next |
-| 2 | Kernel: container, builder/registry, plugins, config, schema freeze | |
+| 1 | Domain: ids, `FeatureMatrix`, `ProfileVector`, `ScoreBoard`, `HistoryIndex` | done |
+| 2 | Kernel: container, builder/registry, plugins, config, schema freeze | next |
 | 3 | Pipeline: stages, middleware, cancellation, error policy | |
 | 4 | Maths: normalizers, similarity, MMR, RRF, decay, heap, RNG | |
 | 5–8 | Strategies, modifiers, diversity, explainability | |
