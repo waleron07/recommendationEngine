@@ -3,11 +3,14 @@
 Algorithmic, explainable, domain-agnostic recommendation engine for TypeScript.
 
 **Not AI. Not an LLM.** A deterministic ranking machine: give it a user, a history and a set of
-candidates, and every item in the result can tell you why it is there.
+candidates, and every item in the result can tell you why it is there — as data, not as prose.
 
-> **Status: pre-alpha.** The architecture is designed and agreed ([ARCHITECTURE.md](./ARCHITECTURE.md));
-> the scaffold is in place. The engine itself is not implemented yet — see [Roadmap](#roadmap).
-> Nothing is published to npm.
+> **Status: pre-alpha. Nothing is published to npm yet.**
+> The engine works end to end: retrieval → filtering → features → scoring → normalization →
+> combination → modifiers → ranking → diversification → explanation. 560 tests; CI green on
+> Node 20/22/24, Bun and Deno. What is missing is the batteries — the strategy, modifier and
+> diversity packages are still empty (stages 5–7), so for now you write your own, as the example
+> below does. The public API may still change. Current state: [PROGRESS.md](./PROGRESS.md).
 
 ## The idea
 
@@ -17,77 +20,238 @@ to recommendations.
 
 Domain knowledge turns into numbers inside **feature extractors**. Everything downstream — scoring,
 normalization, ranking, diversification, explanation — works on numbers only. A `ScoringStrategy`
-physically cannot reach `item.payload.artist`; the compiler forbids it.
+physically cannot reach `item.payload.artist`: it is never handed the payload, and the compiler
+enforces it.
 
-The payoff: adding movies to a library built for music means writing a candidate provider and one or
-two extractors. Strategies, ranking, diversification and explanations are reused unchanged.
+Two consequences follow, and they are the whole point:
+
+- **The same engine serves music, e-commerce and news.** Swap the extractors, keep everything else.
+- **Errors surface at startup, not at 3am.** A strategy needing a feature nobody provides fails at
+  `build()` — the way a mapping error in Elasticsearch fails at index time rather than at search time.
+
+## Install
+
+Not on npm yet. To try it, build from source:
+
+```bash
+git clone https://github.com/waleron07/recommendationEngine.git
+cd recommendationEngine
+pnpm install
+pnpm verify     # lint + architecture check + build + 560 tests
+```
+
+Then import from `packages/core/src`, or run `pnpm build` and import from `packages/core/dist`.
+
+Once stage 11 lands this section becomes `npm i recoengine` — the unscoped package will be the
+batteries-included facade; `@recoengine/core` is the zero-dependency core.
+
+## Example
+
+A complete engine: it recommends tracks the user has not played yet, favouring the popular ones, and
+explains itself. Every line is real API, and the example below is
+[under test](./packages/core/src/readme-example.test.ts) — it compiles, runs, and produces the
+output shown. Only `db` is yours to supply.
+
+```ts
+import {
+  createEngine, featureKey, itemId, rank, strategyId, userId,
+  type CandidateProvider, type FeatureExtractor, type PreFilter, type ScoringStrategy,
+} from '@recoengine/core'
+
+interface Track {
+  readonly title: string
+  readonly plays: number
+}
+
+const POPULARITY = featureKey('popularity')
+
+// 1. WHERE CANDIDATES COME FROM — the only place allowed to touch your database.
+//    The budget is pushed in rather than applied afterwards: trimming a million rows after
+//    SELECT protects the response and not the database. Translate it into your LIMIT.
+const library: CandidateProvider<Track> = {
+  id: 'library',
+  version: '1.0.0',
+  provide: async (_ctx, budget) => {
+    const rows = await db.tracks.findMany({ take: budget.maxItems })
+    return rows.map((row) => ({
+      id: itemId(row.id),
+      type: 'track',
+      payload: { title: row.title, plays: row.plays },
+    }))
+  },
+}
+
+// 2. HARD RULES, decided from the payload alone, before anything expensive.
+//    Fail-closed by contract: approve() is synchronous and total, and a throw counts as "no".
+const notPlayedYet: PreFilter<Track> = {
+  id: 'not-played-yet',
+  failClosed: true,
+  approve: (candidate, ctx) => !ctx.history.hasSeen(candidate.item.id),
+}
+
+// 3. DOMAIN KNOWLEDGE → NUMBERS. The only component that knows what a track is.
+//    Batched over the whole set on purpose: one query, not five thousand.
+const popularity: FeatureExtractor<Track> = {
+  id: 'popularity-extractor',
+  version: '1.0.0',
+  provides: [
+    {
+      key: POPULARITY,
+      kind: 'numeric',
+      // What absence means, decided by whoever owns the feature. Not decoration: this is
+      // what an `optional` extractor degrades to when it fails.
+      defaultValue: 0,
+      description: 'lifetime play count',
+      owner: 'popularity-extractor',
+      ownerVersion: '1.0.0',
+    },
+  ],
+  extract: async (set, out) => {
+    const column = out.columnMut(POPULARITY)
+    for (let row = 0; row < set.size; row++) column[row] = set.at(row).item.payload.plays
+  },
+}
+
+// 4. THE MATHS. Knows nothing about tracks — it reads a column of numbers.
+//    `requires` is checked at build(): get the key wrong and the application will not start.
+const popular: ScoringStrategy = {
+  id: strategyId('popularity'),
+  requires: [POPULARITY],
+  // The strategy knows its own scale. One viral track at 4,200,000 plays would flatten
+  // min-max, so it asks for `rank`, which discards magnitudes and keeps the order.
+  normalizer: rank,
+  score: (view) => ({
+    strategyId: strategyId('popularity'),
+    raw: view.items.column(POPULARITY),
+    reasons: new Map(),
+  }),
+}
+
+const engine = createEngine<Track>()
+  .use(library)
+  .use(notPlayedYet)
+  .use(popularity)
+  .use(popular)
+  .configure({
+    // Mandatory, without defaults. Omit them and build() throws INVALID_CONFIG: there is no
+    // honest default for "how much of my database may one request touch".
+    limits: { maxCandidates: 5_000, maxLimit: 100, timeoutMs: 200 },
+    weights: { popularity: 1.0 },
+  })
+  .build() // ← throws here if a feature is missing or the config does not hold together
+
+const result = await engine.recommend({
+  user: { id: userId('u1'), payload: {} },
+  history: { userId: userId('u1'), events: [] },
+  limit: 10,
+  explain: 'reasons',
+})
+
+for (const { rank: position, item, score, explanation } of result.recommendations) {
+  console.log(`${position}. ${item.payload.title} — ${score.toFixed(1)}`)
+  for (const c of explanation.contributions) {
+    console.log(`     ${c.strategyId}: raw ${c.raw} → ${c.contribution.toFixed(3)}`)
+  }
+}
+
+// Diagnostics are part of the answer, not a log line — so an empty feed explains itself.
+console.log(result.diagnostics)
+// { totalMs: 2, retrieved: 3, filtered: 0, stages: [...16 timings], warnings: [] }
+```
+
+Against the three tracks in the test, that prints:
 
 ```
-Input → Candidate Provider → Feature Extraction → Feature Engineering
-      → Scoring → Normalization → Ranking → Diversification
-      → Recommendation → Explanation
+1. The Hit — 100.0
+     popularity: raw 4200000 → 1.000
+2. Middling — 50.0
+     popularity: raw 900 → 0.500
+3. Quiet One — 0.0
+     popularity: raw 12 → 0.000
 ```
+
+Note the middle row. `rank` is why it says 50 and not 0.02: under min-max one viral track at
+4,200,000 plays would squash 900 and 12 into the same hair above zero, and the column would stop
+distinguishing anything at all. That is the choice `normalizer` exists to give the strategy.
+
+### What that example buys you
+
+**Add a strategy, and the weights still mean what they said.** Every column is normalized to
+`[0..1]` and the total is divided by `Σ weights`, so `artist: 0.9` against `popularity: 0.3` reads
+as "artist matters three times more" — and stays true when a ninth strategy joins.
+
+**Cold start costs nothing.** Give a strategy `applicable: (ctx) => ctx.history.size >= 20` and a new
+user simply gets the strategies that can speak to them, with the rest of the weight redistributed.
+No `if (isNewUser)` anywhere in the core.
+
+**Nothing degrades quietly.** A failing extractor fails the request by default. Mark it
+`criticality: 'optional'` and it degrades to the feature's declared `defaultValue` — with a
+structured warning in `diagnostics` and a `reco.degraded` metric, because degradation nobody
+measures is a slow quality regression.
+
+**It is reproducible.** The RNG is seeded (xoshiro128\*\*), so the same user gets the same feed
+twice: a bug report can be replayed, and an A/B test measures the variant rather than the scheduler.
 
 ## Packages
 
-| Package | Purpose | Deps |
-|---|---|---|
-| `@recoengine/core` | Pipeline, ports, scoring, explainability | **zero** |
-| `@recoengine/features` | Domain-neutral extractors and transforms | core |
-| `@recoengine/strategies` | Domain-neutral scoring strategies | core |
-| `@recoengine/modifiers` | Fatigue, novelty, boosts | core |
-| `@recoengine/diversity` | MMR, quotas, similarity | core |
-| `@recoengine/testing` | Fixtures, golden runner, port contracts | core |
-| `recoengine` | Batteries-included meta package | all of the above |
-
-`@recoengine/core` has zero runtime dependencies and no Node API, so it runs on Node, Bun, Deno and
-in the browser. Both claims are enforced in CI, not just promised here: `tsconfig` sets `types: []`
-(so `process` and `Buffer` do not exist), and `scripts/check-arch.mjs` rejects `node:*` imports and
-any dependency pointing the wrong way.
+| Package | What | Deps | Status |
+|---|---|---|---|
+| `@recoengine/core` | Domain, ports, kernel, pipeline, maths | **zero** | works |
+| `recoengine` | Unscoped facade for a quick start | core | re-exports core |
+| `@recoengine/strategies` | History, affinity, popularity, recency, … | core | empty (stage 5) |
+| `@recoengine/features` | Reusable extractors and transforms | core | empty |
+| `@recoengine/modifiers` | Fatigue, novelty, boost | core | empty (stage 6) |
+| `@recoengine/diversity` | MMR, quotas, similarity providers | core | empty (stage 7) |
+| `@recoengine/testing` | Fixtures, golden runner, port contracts | core | empty |
 
 ## Design highlights
 
-- **Explainability by construction.** Contributions accumulate through the pipeline; you cannot
-  compute a score without leaving a trail. `engine.explain(itemId)` also answers the harder
-  question — why an item is *missing* from the results.
-- **Errors at `build()`, not at 3am.** A strategy requiring a feature nobody provides fails at
-  startup, not with a silent `NaN` in production.
-- **Fail-closed filters.** Age gates, licensing and GDPR rules are structurally unable to fail open.
-- **Deterministic.** No `Math.random()`, no `Date.now()` — `Rng` and `Clock` are injected, so
-  exploration is reproducible and testable.
+- **Isomorphic, and the compiler proves it.** `core` imports no environment API at all: `lib` without
+  DOM and `types: []` mean `process`, `Buffer` and `window` do not exist inside it. Not a promise in
+  a README — a build error. CI runs Node 20/22/24, Bun and Deno.
+- **`score()` is synchronous, forever.** Not an optimization but a guard on the I/O → extraction →
+  maths split. An `async score()` is a door, and "just fetch one value from Redis" walks through it.
+- **Explainability is structural.** The board cannot hold a score without holding what produced it,
+  so `Σ contributions = score` is true by construction rather than by discipline.
+- **Filters are fail-closed by contract**, not by configuration: no `criticality`, a synchronous and
+  total `approve()`, and an exception counts as refusal. What is not explicitly approved is not shown.
+- **The pipeline is fixed; the ports are the extension.** A pipeline anyone can splice into is one
+  nobody can reason about — "when does my filter run" becomes "it depends who else is installed".
+
+Full reasoning: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Development
 
 ```bash
-pnpm install
-pnpm verify    # lint + architecture guard + build + test
+pnpm verify     # lint + check:arch + build + test — what CI runs
+pnpm test       # 560 tests
+pnpm bench      # benchmarks: they measure, they do not assert
+pnpm docs       # typedoc
 ```
 
-| Command | Does |
-|---|---|
-| `pnpm build` | `tsc --build` across the workspace |
-| `pnpm test` | Vitest |
-| `pnpm lint` | Biome (`pnpm lint:fix` to apply) |
-| `pnpm check:arch` | Zero-dep core, leftward deps, no Node API in core |
-| `pnpm docs` | Typedoc |
+`pnpm verify`, not `pnpm ci` — `ci` is reserved by pnpm and would exit 0 without running anything.
 
-Requires Node 20+ and pnpm 10+. ESM only, no CommonJS build.
+The architecture guard (`scripts/check-arch.mjs`) is not a formality: it fails the build if `core`
+gains a dependency, imports `node:*`, or if a package depends rightwards. All four rules were
+verified by breaking them on purpose.
 
 ## Roadmap
 
-Stage 0 (scaffold) is done. Stages follow [ARCHITECTURE.md §22](./ARCHITECTURE.md#22-план-реализации):
+Stages follow [ARCHITECTURE.md §22](./ARCHITECTURE.md#22-план-реализации); current state and open
+debts live in [PROGRESS.md](./PROGRESS.md).
 
 | Stage | Content | Status |
 |---|---|---|
 | 0 | Workspace, TS, Biome, Vitest, Typedoc, CI, architecture guard | done |
 | 1 | Domain: ids, `FeatureMatrix`, `ProfileVector`, `ScoreBoard`, `HistoryIndex` | done |
-| 2 | Kernel: container, builder/registry, plugins, config, schema freeze | next |
-| 3 | Pipeline: stages, middleware, cancellation, error policy | |
-| 4 | Maths: normalizers, similarity, MMR, RRF, decay, heap, RNG | |
-| 5–8 | Strategies, modifiers, diversity, explainability | |
+| 2 | Kernel: container, builder/registry, plugins, config, feature-graph validation | done |
+| 3 | Pipeline: 16 stages, middleware, cancellation, error policy | done |
+| 4 | Maths: normalizers, similarity, RRF, decay, heap, seeded RNG | done |
+| 5 | `@recoengine/strategies` — nine strategies | next |
+| 6–8 | Modifiers, diversity (MMR), explainability + `engine.explain()` | |
 | 9 | Music example | |
 | 10 | E-commerce example — the acceptance test for domain independence | |
-| 11 | Docs, benchmarks, `v0.1.0` | |
+| 11 | Docs, benchmarks, `v0.1.0` | publish |
 
 Stage 10 is not a demo. If a second domain requires touching `core`, the abstraction leaked and gets
 fixed before release.
