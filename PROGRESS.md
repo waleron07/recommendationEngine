@@ -329,4 +329,4 @@ packages/diversity/src/
 | `94689ab` | Ревизия плана 0.5: аудит §13, заведены пропущенные стадии 6а/8а |
 | `00ddc1c` | Этап 6 закрыт: три модификатора §15, 16 тестов, ARCHITECTURE §15.1 сведён |
 | `e31a91f` | Этап 6а закрыт: `@recoengine/testing` (фикстуры + contract-kit), долг ручных фикстур погашен, ARCHITECTURE §21.1 сведён |
-| _(pending)_ | Этап 7 закрыт: `@recoengine/diversity` (MMR/quota/similarity/blender), 2 долга §5 + правка порта Diversifier, ARCHITECTURE §14.1 сведён |
+| `d15750f` | Этап 7 закрыт: `@recoengine/diversity` (MMR/quota/similarity/blender), 2 долга §5 + правка порта Diversifier, ARCHITECTURE §14.1 сведён |
