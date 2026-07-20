@@ -1324,12 +1324,16 @@ engine
   .use(new ArtistAffinityExtractor())     // домен: payload.artistId → affinity_artist
   .use(new GenreAffinityExtractor())      // домен: payload.genres  → affinity_genre
   .use(new PlaylistAffinityExtractor())   // домен: payload.playlists → affinity_playlist
-  .use(new AffinityStrategy({ id: 'artist',   feature: 'affinity_artist'   }))
-  .use(new AffinityStrategy({ id: 'genre',    feature: 'affinity_genre'    }))
-  .use(new AffinityStrategy({ id: 'playlist', feature: 'affinity_playlist' }))
+  .use(affinityStrategy({ id: 'artist',   feature: 'affinity_artist'   }))
+  .use(affinityStrategy({ id: 'genre',    feature: 'affinity_genre'    }))
+  .use(affinityStrategy({ id: 'playlist', feature: 'affinity_playlist' }))
 ```
 
 Три строки конфига вместо трёх классов.
+
+**Реализованы как фабрики-функции, а не классы (внесено при Этапе 5).** Каждая стратегия — `affinityStrategy(...)`, `popularityStrategy(...)` и т.д., возвращающая `ScoringStrategy`. Это согласовано с функциональным экспортом ядра (`weightedSum`, `sortRanker`) и со структурной диспетчеризацией плагинов, которая узнаёт стратегию по методу `score`, а не по `instanceof` (§8.5, `plugin.ts` прямо предостерегает от `instanceof`). Документ до 0.5 писал `new AffinityStrategy(...)`; правится документ, а не код (§23.-2). Конфигурируемые поля — `id` (он же ключ веса), фичи и `normalizer`; двум стратегиям одного вида нужны разные `id`, иначе они дерутся за один вес, и `addStrategy` это ловит.
+
+**Нормализаторы по умолчанию — по шкале стратегии (§12).** `historyStrategy` → `rank` (тяжёлый хвост счётчиков); `popularityStrategy` блендит **перцентили** глобальной и когортной колонок (у них разные шкалы, сырой блендинг раздавил бы меньшую) и потому нормируется `identity`; `affinity`/`similarity`/`recency`/`novelty`/`context`/`discovery`(с `target`) уже дают [0..1] → `identity`; `cooccurrence` и `discovery`(без `target`) → `minmax`. `noveltyStrategy` — единственная из девяти, кто использует `requiresProfile` (`profile_saturation` из `ProfileVector`): без `UserFeatureExtractor`, дающего эту фичу, `build()` отклонит движок. `applicable`-гейт на историю несут `history`/`affinity`/`similarity`/`cooccurrence`/`discovery` (нет истории — колонка отброшена, вес перетёк, §17.3); `context` гейтит на `ctx.signals`; `popularity` и `recency` гейта не несут — они и есть cold-start-фолбэк.
 
 ---
 
@@ -1796,7 +1800,7 @@ const result = await engine.recommend({
 | ✅ 2 | `kernel/` — container, EngineBuilder(=Registry), plugin host, config, валидация графа фичей, freeze + schema.version | Плагин с недостающей фичей падает на `build()`; `use()` после `build()` бросает |
 | ✅ 3 | `pipeline/` — стадии, middleware, диагностика, **cancellation + error policy** | Пустой движок отдаёт пустой результат с таймингами; прерванный сигнал даёт `AbortError` на каждой стадии |
 | ✅ 4 | `math/` — нормализаторы, similarity, rrf, decay, heap, rng | Property-тесты, бенчмарки. **`softmax` и `mmr` перенесены**: первый пока никому не понадобился, второй принадлежит Этапу 7 |
-| 5 | `@recoengine/strategies` — 9 стратегий | Golden-тесты на синтетике |
+| ✅ 5 | `@recoengine/strategies` — 9 стратегий | Golden-тесты на синтетике |
 | 6 | `@recoengine/modifiers` — fatigue, novelty, boost | Кривые затухания и восстановления |
 | 7 | `@recoengine/diversity` — MMR, quota, similarity providers | MMR(λ=1) ≡ ranking |
 | 8 | Explainability — explainer, trace, `engine.explain()` | Объяснение сходится: Σ contributions = score |
@@ -1806,7 +1810,7 @@ const result = await engine.recommend({
 
 Этап 10 — не демо, а **приёмочный тест архитектуры**. Если для e-commerce потребуется тронуть `core`, значит абстракция протекла и её надо чинить до релиза.
 
-Этапы 0–4 закрыты: 556 тестов, покрытие ядра 95.4%, CI зелёный на Node 20/22/24, Bun и Deno. Текущее состояние работы, открытые долги и точка входа для продолжения — в [PROGRESS.md](./PROGRESS.md); этот документ описывает архитектуру, а не прогресс.
+Этапы 0–5 закрыты: 581 тест, покрытие ядра 95.4%, CI зелёный на Node 20/22/24, Bun и Deno. Текущее состояние работы, открытые долги и точка входа для продолжения — в [PROGRESS.md](./PROGRESS.md); этот документ описывает архитектуру, а не прогресс.
 
 ---
 

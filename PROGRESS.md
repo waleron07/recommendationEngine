@@ -1,10 +1,10 @@
 # Точка остановы
 
-> Обновлено: 2026-07-16
+> Обновлено: 2026-07-20
 > Ветка: `main`
 > Remote: [waleron07/recommendationEngine](https://github.com/waleron07/recommendationEngine) (**публичный**)
-> Состояние: **Этапы 0–4 закрыты. Следующий — Этап 5 (`@recoengine/strategies`).**
-> Последняя ревизия: аудит Этапов 2–4 — найдено и исправлено **10 багов** (§5), затем **ARCHITECTURE.md сведён с кодом** (версия 0.5, §23.-2 — внесён 31 пункт).
+> Состояние: **Этапы 0–5 закрыты. Следующий — Этап 6 (`@recoengine/modifiers`).**
+> Последняя ревизия: закрыт **Этап 5** — девять стратегий §11.3 в `@recoengine/strategies` (21 golden-тест на синтетике), ARCHITECTURE.md §11.3 сведён с кодом тем же заходом.
 
 Этот файл — состояние работы, а не документация. Проектные решения и их обоснования живут в [ARCHITECTURE.md](./ARCHITECTURE.md) (**версия 0.5, сверена с реализацией**); здесь только то, что нужно, чтобы продолжить с того же места.
 
@@ -20,7 +20,7 @@ pnpm verify     # lint + check:arch + build + test
 pnpm bench      # отдельно: измеряет, а не утверждает
 ```
 
-Ожидаемо: **560 тестов в 30 файлах**, `✓ Architecture check passed (7 packages)`, покрытие ядра **95.4% строк / 93.26% ветвей** (пороги в `vitest.config.ts`: 90/85/90/90).
+Ожидаемо: **581 тест в 31 файле**, `✓ Architecture check passed (7 packages)`, покрытие ядра **95.4% строк / 93.26% ветвей** (пороги в `vitest.config.ts`: 90/85/90/90). Из них 21 — golden-тесты Этапа 5 в `packages/strategies/src/strategies.test.ts`.
 
 Biome даёт **4 предупреждения** (0 ошибок, `verify` зелёный). Они настоящие, не косметика: неиспользуемый параметр типа `P` в `RecommendationRequest` — фантом, обещающий типобезопасность, которой нет; неиспользуемый `policy` в `normalize()`. Чинить при следующем заходе.
 
@@ -81,7 +81,30 @@ packages/core/src/
 benchmarks/math.bench.ts    вне verify: меряет на 5000 кандидатов
 ```
 
-Пять пакетов (`features`, `strategies`, `modifiers`, `diversity`, `testing`) — пустые каркасы с `export {}`. Шестой, `recoengine`, — **не пустой**: это фасад `export * from '@recoengine/core'`.
+Четыре пакета (`features`, `modifiers`, `diversity`, `testing`) — пустые каркасы с `export {}`. `strategies` — **закрыт Этапом 5** (девять фабрик §11.3). Шестой, `recoengine`, — фасад `export * from '@recoengine/core'`; стратегии он пока не реэкспортирует (решить при Этапе 11, когда появится, что публиковать).
+
+### Этап 5 — `@recoengine/strategies` (закрыт)
+
+Девять доменно-нейтральных стратегий §11.3, каждая — фабрика-функция, возвращающая `ScoringStrategy` (не класс: согласовано с функциональным экспортом ядра и структурной диспетчеризацией плагинов, которая узнаёт стратегию по методу `score`, а не по `instanceof`; ARCHITECTURE.md §11.3 сведён на `affinityStrategy(...)`).
+
+```
+packages/strategies/src/
+├── internal.ts        FeatureRef/toKey/toId, StrategyOptions, clamp01, percentiles (тай-группы), sparseReasons
+├── history.ts         count × recency; normalizer rank; applicable: history.size ≥ minHistory
+├── affinity.ts        параметризуется feature; identity; два инстанса ⇒ разные id (иначе дерутся за вес)
+├── popularity.ts      блендит ПЕРЦЕНТИЛИ global/cohort (разные шкалы!); identity; cohortFeature:null отключает когорту; без гейта (cold-start фолбэк)
+├── recency.ts         exponentialDecay(age, halfLife); identity; без гейта; age<0 → 1 («ещё не»)
+├── similarity.ts      recentWeight·sim_recent + (1−w)·sim_profile; identity; гейт на историю
+├── cooccurrence.ts    cooc_score; minmax; гейт на историю; причина по перцентилю
+├── novelty.ts         saturation·(1−familiarity); ЕДИНСТВЕННАЯ с requiresProfile (profile_saturation из ProfileVector)
+├── discovery.ts       без target — reward расстояния (minmax); с target — гаусс-полоса вокруг него (identity); гейт на историю
+├── context.ts         context_match; identity; гейт на ctx.signals.size ≥ 1
+└── strategies.test.ts 21 golden-тест через реальный createEngine (доказывает и ранжирование, и что правило core ← strategies держится на практике)
+```
+
+**Что проверено на числах.** Перцентильный бленд популярности: c(900) и d(50) остаются различимы (67 vs 33) рядом с b(5000) — ровно то, ради чего §12. Cold-start reflow: у нового пользователя `history`/`affinity`/… отбрасываются, вес перетекает, `popularity` решает одна; движок с кандидатами, но нулём применимых стратегий, отдаёт кандидатов с base=0 в порядке retrieval, а не пустоту (§17.3). Novelty саморегулируется: saturation=0 → буста нет.
+
+**Грабли Этапа 5.** (1) `FeatureDescriptor.owner` обязан называть свой экстрактор — иначе `build()` падает про инвалидацию кэша. (2) Дефолтный `sortRanker` тай-брейкает по **индексу строки** (порядку retrieval), а не по `ItemId`, как обещает §13, — это существующий долг ядра, тесты сверены с фактическим поведением. (3) Презентационная шкала не округляется (PROGRESS §5), поэтому golden-тесты округляют score в ассерте.
 
 ### Бенчмарки (на 5000 кандидатов — столько стоит в `maxCandidates` во всех примерах §10)
 
@@ -119,18 +142,18 @@ benchmarks/math.bench.ts    вне verify: меряет на 5000 кандида
 
 ---
 
-## 4. Следующий шаг — Этап 5 (`@recoengine/strategies`)
+## 4. Следующий шаг — Этап 6 (`@recoengine/modifiers`)
 
-Критерий приёмки из §22: **golden-тесты на синтетике**. Девять стратегий из §11.3.
-
-Это первый пакет вне ядра — то есть первая настоящая проверка, что правило зависимостей (`core ← strategies`) держится не только в `check-arch`, но и на практике: стратегия обязана обойтись портами и математикой, не заглядывая внутрь ядра.
+Критерий приёмки из §22: **кривые затухания и восстановления**. Модификаторы стадии 8: fatigue, novelty, boost (§15).
 
 Что учесть, заходя:
 
-1. **`applicable()` — главный инструмент.** `HistoryStrategy` с `ctx.history.size >= 20` — это и есть cold start из §17.3, и он уже работает: колонка пропускается, вес перераспределяется (регресс-тест на это есть).
-2. **`normalizer` на стратегии.** Стратегия знает свою шкалу: `PopularityStrategy` вернёт 4 200 000 и должна попросить `rank` или `zscore`, а не полагаться на `minmax`, который расплющит колонку одним выбросом (тесты в `normalize.test.ts` показывают это на числах).
-3. **`softmax`** — не написан (см. §5); дописать в `math/normalize.ts`, если стратегиям понадобится.
-4. **`SimilarityProvider`** — порт объявлен, слота в `Registry` нет (§5). Решать, когда до него дойдёт `SimilarityStrategy`.
+1. **Модификатор пишет через `MutableScoreBoard.add`, не читает `ScoreBoard`.** Контракт `ScoreModifier` (§16, `score.ts`) даёт только write-side: fatigue читает историю и фичи и заявляет множитель, базовый score ему не нужен. `kind: 'multiplicative'` для fatigue/novelty, `'boost'`/`'veto'` для остального — §11.2 их складывает по-разному, и это принципиально (§15: умножение убирает трек, вычитание — нет).
+2. **«Всё или ничего» (§17.2, 0.5).** Модификатор коммитит буфер, только дойдя до конца: утомил 50 из 5000 и упал на 51-м — не оставить половину выдачи приглушённой молча. Это отдельное требование, не следствие формулы, — закрепить тестом.
+3. **Fatigue уже есть в математике.** `math/decay.ts`: `exponentialDecay` (затухание по count), `recovery` (восстановление по времени с последнего контакта, §15). Модификатор — тонкая обёртка над ними + чтение `HistoryIndex.countFor`/`lastAtFor`. `gaussianDecay`/`linearDecay` тоже готовы.
+4. **Novelty — второй раз.** `noveltyStrategy` (Этап 5) даёт аддитивную колонку; модификатор novelty — мультипликативный буст (§15: `1 + saturation·weight·unfamiliarity`). Оба легитимны, различие — порядок свёртки; не дублировать логику, а переиспользовать формулу насыщения.
+
+**Хвосты Этапа 5, оставленные сознательно:** `softmax` по-прежнему не написан (§5, никому пока не понадобился); `SimilarityProvider` без слота в `Registry` — решать на Этапе 7 (diversity), там же MMR; `recoengine`-фасад стратегии не реэкспортирует.
 
 ---
 
@@ -237,3 +260,4 @@ benchmarks/math.bench.ts    вне verify: меряет на 5000 кандида
 | `92cb692` | Починен тест, зависевший от таймингов, — поймал CI |
 | `3c02035` | Этап 4 (1/2): rng, куча top-K, нормализаторы |
 | `ffbe210` | Этап 4 закрыт: similarity, decay, RRF, бенчмарки |
+| _(pending)_ | Этап 5 закрыт: девять стратегий §11.3, 21 golden-тест, ARCHITECTURE §11.3 сведён |
