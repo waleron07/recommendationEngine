@@ -181,7 +181,8 @@ export async function runPipeline<P, UP>(
     'diversification',
     ranked.length,
     (r) => r.length,
-    async () => diversify(registry.diversifiers, ranked, set, board, ctx, policyFor('diversification')),
+    async () =>
+      diversify(registry.diversifiers, ranked, set, board, ctx, matrix, policyFor('diversification')),
   )
 
   const blended = await stage(

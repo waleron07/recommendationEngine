@@ -1,4 +1,5 @@
 import type { CandidateSet } from '../../domain/candidate.js'
+import type { FeatureMatrix } from '../../domain/matrix.js'
 import type { ScoreBoard } from '../../domain/score.js'
 import { RecoError } from '../../kernel/errors.js'
 import type { Blender } from '../../ports/blender.js'
@@ -45,6 +46,7 @@ export function diversify<P>(
   set: CandidateSet<P>,
   board: ScoreBoard,
   ctx: RequestContext,
+  matrix: FeatureMatrix,
   policy: PolicyContext,
 ): readonly number[] {
   let current = ranked
@@ -54,7 +56,7 @@ export function diversify<P>(
     const before = current
 
     try {
-      current = diversifier.diversify(current, set, board, ctx)
+      current = diversifier.diversify(current, set, board, ctx, matrix)
       assertRows('diversification', diversifier.id, current, board.rows)
       assertSubsetOf(diversifier.id, current, before)
     } catch (error) {

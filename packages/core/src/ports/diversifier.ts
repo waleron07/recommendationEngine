@@ -9,6 +9,10 @@ import type { RequestContext } from './context.js'
  * After ranking, because greedy algorithms like MMR need the order to work against.
  * Takes and returns row indices, so a diversifier that does nothing is the identity
  * function and MMR at λ=1 is provably plain ranking.
+ *
+ * Receives the `FeatureMatrix` because feature-based diversity is the whole point of the
+ * stage: MMR reads it through a `SimilarityProvider`, `AttributeQuota` groups on a
+ * categorical column. A diversifier that needs no features simply ignores it.
  */
 export interface Diversifier<P = unknown> {
   readonly id: string
@@ -17,6 +21,7 @@ export interface Diversifier<P = unknown> {
     set: CandidateSet<P>,
     board: ScoreBoard,
     ctx: RequestContext,
+    matrix: FeatureMatrix,
   ): readonly number[]
 }
 
