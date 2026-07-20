@@ -10,18 +10,18 @@
  * one extractor copies payload fields into columns. That keeps every test about the
  * strategy under test and nothing else.
  */
+import { createEngine, userId } from '@recoengine/core'
 import {
-  type CandidateProvider,
-  createEngine,
-  eventId,
-  type FeatureDescriptor,
-  type FeatureExtractor,
-  featureKey,
-  itemId,
-  timestamp,
-  type UserFeatureExtractor,
-  userId,
-} from '@recoengine/core'
+  assertScoringStrategy,
+  catalogueOf,
+  events,
+  type FeatureRow,
+  historyOf,
+  payloadExtractor,
+  profileExtractor,
+  request,
+  TEST_LIMITS,
+} from '@recoengine/testing'
 import { describe, expect, it } from 'vitest'
 import {
   affinityStrategy,
@@ -35,69 +35,16 @@ import {
   similarityStrategy,
 } from './index.js'
 
-type Row = { readonly id: string } & Record<string, number>
+type Row = FeatureRow
 
-const descriptor =
-  (owner: string) =>
-  (key: string): FeatureDescriptor => ({
-    key: featureKey(key),
-    kind: 'numeric',
-    defaultValue: 0,
-    description: key,
-    owner,
-    ownerVersion: '1.0.0',
-  })
-
-/** One extractor that copies the named payload fields straight into columns. */
-const itemFeatures = (keys: readonly string[]): FeatureExtractor<Row> => ({
-  id: 'item-features',
-  version: '1.0.0',
-  provides: keys.map(descriptor('item-features')),
-  extract: async (set, out) => {
-    for (const key of keys) {
-      const column = out.columnMut(featureKey(key))
-      for (let row = 0; row < set.size; row++) column[row] = set.at(row).item.payload[key] ?? 0
-    }
-  },
-})
-
-/** A user-side extractor that surfaces `profile_saturation` from the user payload. */
-const profileSaturation = (value: number): UserFeatureExtractor<{ saturation: number }> => ({
-  id: 'profile-features',
-  version: '1.0.0',
-  scope: 'user',
-  provides: [descriptor('profile-features')('profile_saturation')],
-  extract: async (out) => {
-    out.set(featureKey('profile_saturation'), value)
-  },
-})
-
-const provider = (rows: readonly Row[]): CandidateProvider<Row> => ({
-  id: 'catalogue',
-  version: '1.0.0',
-  provide: async (_ctx, budget) =>
-    rows.slice(0, budget.maxItems).map((row) => ({ id: itemId(row.id), type: 'item', payload: row })),
-})
-
-const LIMITS = { limits: { maxCandidates: 5_000, maxLimit: 100, timeoutMs: 200 } } as const
-
-/** A history of `n` events, enough to clear any `minHistory` gate. */
-const withHistory = (n: number) =>
-  Array.from({ length: n }, (_, i) => ({
-    id: eventId(`e${i}`),
-    userId: userId('u'),
-    itemId: itemId(`seed${i}`),
-    type: 'play',
-    at: timestamp(1_000 + i),
-  }))
-
-const listen = (over: Record<string, unknown> = {}) => ({
-  user: { id: userId('u'), payload: { saturation: 0 } },
-  history: { userId: userId('u'), events: [] },
-  limit: 10,
-  explain: 'reasons' as const,
-  ...over,
-})
+// Fixtures now live in @recoengine/testing (Этап 6а); these thin aliases keep the golden
+// tests below reading as before while the synthetic engine parts moved into the shared kit.
+const provider = catalogueOf
+const itemFeatures = payloadExtractor
+const profileSaturation = (value: number) => profileExtractor('profile_saturation', value)
+const LIMITS = { limits: TEST_LIMITS }
+const withHistory = (n: number) => events('seed', n)
+const listen = request
 
 /** Ranked item ids, top first — the thing golden tests assert on. */
 const order = (recommendations: readonly { item: { payload: Row } }[]) =>
@@ -454,4 +401,52 @@ describe('determinism', () => {
     // The x/y tie resolves by retrieval (row) order, every time — never the mood of the sort.
     expect(first).toEqual(['z', 'x', 'y'])
   })
+})
+
+// Every strategy is also run through the reusable port contracts (@recoengine/testing):
+// cancellation (§17.1), determinism, and well-formed scores. This is the "one line per
+// port" of §21 — and it dogfoods the kit against the real strategies, not just synthetic ones.
+describe('port-contract conformance', () => {
+  const history = historyOf(events('seed', 25)) // clears any minHistory gate
+  const rowsWith = (keys: readonly string[]): FeatureRow[] =>
+    [0.2, 0.8].map((value, i) => {
+      const fields: Record<string, number> = {}
+      for (const key of keys) fields[key] = value
+      return { id: `c${i}`, ...fields } as FeatureRow
+    })
+
+  it('history', () =>
+    assertScoringStrategy(historyStrategy(), {
+      rows: rowsWith(['interaction_count', 'interaction_recency']),
+      history,
+    }))
+  it('affinity', () =>
+    assertScoringStrategy(affinityStrategy({ feature: 'affinity_artist' }), {
+      rows: rowsWith(['affinity_artist']),
+      history,
+    }))
+  it('popularity', () =>
+    assertScoringStrategy(popularityStrategy(), {
+      rows: rowsWith(['popularity_global', 'popularity_cohort']),
+    }))
+  it('recency', () => assertScoringStrategy(recencyStrategy(), { rows: rowsWith(['item_age']) }))
+  it('similarity', () =>
+    assertScoringStrategy(similarityStrategy(), {
+      rows: rowsWith(['sim_to_recent', 'sim_to_profile']),
+      history,
+    }))
+  it('cooccurrence', () =>
+    assertScoringStrategy(coOccurrenceStrategy(), { rows: rowsWith(['cooc_score']), history }))
+  it('novelty', () =>
+    assertScoringStrategy(noveltyStrategy(), {
+      rows: rowsWith(['item_familiarity']),
+      extraPlugins: [profileExtractor('profile_saturation', 0.8)],
+    }))
+  it('discovery', () =>
+    assertScoringStrategy(discoveryStrategy(), { rows: rowsWith(['distance_from_profile']), history }))
+  it('context', () =>
+    assertScoringStrategy(contextStrategy(), {
+      rows: rowsWith(['context_match']),
+      signals: new Map([['time', 'x']]),
+    }))
 })

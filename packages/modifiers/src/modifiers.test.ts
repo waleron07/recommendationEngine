@@ -7,71 +7,38 @@
  * which makes fatigue's decay, its recovery over time, novelty's saturation scaling, and
  * boost's additive nudge all directly observable in the ranking.
  */
+import { CLOCK, createEngine, MapHistoryIndex, userId } from '@recoengine/core'
 import {
-  type CandidateProvider,
-  CLOCK,
-  createEngine,
-  eventId,
-  identity,
-  itemId,
-  MapHistoryIndex,
-  type ScoringStrategy,
-  strategyId,
-  timestamp,
-  userId,
-} from '@recoengine/core'
+  assertScoreModifier,
+  constantStrategy,
+  events,
+  fixedClock,
+  historyOf,
+  itemsOf,
+  request,
+  TEST_LIMITS,
+} from '@recoengine/testing'
 import { describe, expect, it } from 'vitest'
 import { boostModifier, fatigueModifier, noveltyModifier, saturationOf } from './index.js'
 
 const DAY = 86_400_000
 const NOW = 1_000_000_000_000
-const clock = { now: () => timestamp(NOW) }
+const clock = fixedClock(NOW)
 
-/** A base strategy that scores every candidate the same, so modifiers move a flat field. */
-const base = (value: number): ScoringStrategy => ({
-  id: strategyId('base'),
-  requires: [],
-  normalizer: identity,
-  score: (view) => ({
-    strategyId: strategyId('base'),
-    raw: new Float64Array(view.items.rows).fill(value),
-    reasons: new Map(),
-  }),
-})
-
-const provider = (ids: readonly string[]): CandidateProvider => ({
-  id: 'catalogue',
-  version: '1.0.0',
-  provide: async (_ctx, budget) =>
-    ids.slice(0, budget.maxItems).map((id) => ({ id: itemId(id), type: 'item', payload: {} })),
-})
-
-const LIMITS = { limits: { maxCandidates: 5_000, maxLimit: 100, timeoutMs: 200 } } as const
-
-let seq = 0
-/** `count` plays of one item, all at time `at`. */
-const plays = (id: string, count: number, at: number = NOW) =>
-  Array.from({ length: count }, () => ({
-    id: eventId(`e${seq++}`),
-    userId: userId('u'),
-    itemId: itemId(id),
-    type: 'play',
-    at: timestamp(at),
-  }))
-
-const listen = (events: readonly unknown[]) => ({
-  user: { id: userId('u'), payload: {} },
-  history: { userId: userId('u'), events: events as never },
-  limit: 10,
-  explain: 'reasons' as const,
-})
+// Fixtures come from @recoengine/testing (Этап 6а); thin aliases keep the tests reading as
+// before while the synthetic base strategy, provider, clock and history builders moved to the kit.
+const base = constantStrategy
+const provider = itemsOf
+const LIMITS = { limits: TEST_LIMITS }
+const plays = (id: string, count: number, at: number = NOW) => events(id, count, { at })
+const listen = (evts: readonly unknown[]) => request({ history: historyOf(evts as never) })
 
 const byId = (recommendations: readonly { item: { id: string }; score: number }[]) =>
   new Map(recommendations.map((r) => [r.item.id as string, r.score]))
 
 describe('saturationOf', () => {
-  const history = (events: readonly unknown[]) =>
-    new MapHistoryIndex({ userId: userId('u'), events: events as never })
+  const history = (list: readonly unknown[]) =>
+    new MapHistoryIndex({ userId: userId('u'), events: list as never })
 
   it('is 1 when every interaction lands on one item', () => {
     expect(saturationOf(history(plays('a', 10)), undefined)).toBe(1)
@@ -241,4 +208,16 @@ describe('boostModifier', () => {
   it('refuses to build a boost that selects nothing', () => {
     expect(() => boostModifier({ amount: 0.5 })).toThrow()
   })
+})
+
+// Each modifier is also run through the reusable port contracts (@recoengine/testing):
+// well-formed scores, determinism and cancellation (§17.1). Dogfoods the kit on the real
+// modifiers — a multiplicative NaN or a boost past the clamp would surface here.
+describe('port-contract conformance', () => {
+  const history = historyOf(plays('a', 50))
+
+  it('fatigue', () => assertScoreModifier(fatigueModifier(), { ids: ['a', 'b', 'c'], history, now: NOW }))
+  it('novelty', () => assertScoreModifier(noveltyModifier(), { ids: ['a', 'b', 'c'], history, now: NOW }))
+  it('boost', () =>
+    assertScoreModifier(boostModifier({ items: ['a'], amount: 0.3 }), { ids: ['a', 'b', 'c'] }))
 })
