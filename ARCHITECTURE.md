@@ -1335,6 +1335,21 @@ engine
 
 **Нормализаторы по умолчанию — по шкале стратегии (§12).** `historyStrategy` → `rank` (тяжёлый хвост счётчиков); `popularityStrategy` блендит **перцентили** глобальной и когортной колонок (у них разные шкалы, сырой блендинг раздавил бы меньшую) и потому нормируется `identity`; `affinity`/`similarity`/`recency`/`novelty`/`context`/`discovery`(с `target`) уже дают [0..1] → `identity`; `cooccurrence` и `discovery`(без `target`) → `minmax`. `noveltyStrategy` — единственная из девяти, кто использует `requiresProfile` (`profile_saturation` из `ProfileVector`): без `UserFeatureExtractor`, дающего эту фичу, `build()` отклонит движок. `applicable`-гейт на историю несут `history`/`affinity`/`similarity`/`cooccurrence`/`discovery` (нет истории — колонка отброшена, вес перетёк, §17.3); `context` гейтит на `ctx.signals`; `popularity` и `recency` гейта не несут — они и есть cold-start-фолбэк.
 
+### 11.3.1 Кто поставляет фичи (`@recoengine/features`, Этап 8а)
+
+Стратегии читают фичи с фиксированными именами; кто-то должен их произвести. Часть входов **доменно-нейтральна** — считается из истории взаимодействий, а не из `Item.payload`, — и такие производители живут в `@recoengine/features`, а не в доменном экстракторе хоста:
+
+- `interactionCountExtractor` → `interaction_count` = `ctx.history.countFor(item.id, eventType?)`;
+- `interactionRecencyExtractor` → `interaction_recency` = `exponentialDecay((now − lastAt)/timeScale, halfLife)`, непрослушанное → 0.
+
+Оба — ровно то, что по умолчанию требует `historyStrategy`: хост получает repeat-interaction-скоринг, не написав ни строки доменного кода. Ключ — они читают `ctx.history` и `ctx.now`, но **никогда** payload: счёт событий по `ItemId` (тип ядра) одинаков для треков и товаров.
+
+Плюс два **трансформа** (стадия 4a, чистая математика над колонками, доменно-нейтральны by construction): `logTransform` (`log1p(x)/log1p(max)` — компрессия тяжёлого хвоста, §12 как трансформ, а не как приватный выбор стратегии) и `decayTransform` (кривая затухания над колонкой возрастов — общая форма того, что `recencyStrategy` делает внутри, вынесенная в переиспользуемую фичу).
+
+Фичи, которым **нужен** payload — собственный возраст объекта, категория, предрассчитанный co-occurrence, — остаются в доменных экстракторах хоста: только хост знает, где в payload они лежат. `@recoengine/features` — это та часть, которой payload не нужен.
+
+**Уточнение kit (Этап 8а).** `assertScoringStrategy` по умолчанию сам добавляет `payloadExtractor` для требуемых фич; когда фичи поставляет настоящий экстрактор/трансформ (как здесь), это коллизия объявлений. Добавлен флаг `featuresFromPlugins: true` — пропустить авто-payloadExtractor, фичи даёт `extraPlugins`.
+
 ---
 
 ## 12. Normalization
@@ -1845,7 +1860,7 @@ const result = await engine.recommend({
 | ✅ 6а | `@recoengine/testing` — фикстуры, golden-раннер, contract-test kit | Порт проверяется на контракт одной строкой; входят прерванный сигнал (§17.1) и обе `errorPolicy` (§17.2) |
 | ✅ 7 | `@recoengine/diversity` — MMR, quota, similarity providers | MMR(λ=1) ≡ ranking |
 | ✅ 8 | Explainability — explainer, trace, `engine.explain()` | Объяснение сходится: Σ contributions = score |
-| 8а | `@recoengine/features` — общие экстракторы/трансформы | Доменно-нейтральные фичи (напр. `item_age` из timestamp) переиспользуются music и ecommerce |
+| ✅ 8а | `@recoengine/features` — общие экстракторы/трансформы | Доменно-нейтральные фичи (из истории/времени) переиспользуются music и ecommerce |
 | 9 | `@recoengine/domain-music` + `examples/music` | Работает на реальном датасете |
 | 10 | `examples/ecommerce` | **Доказательство: 0 изменений в core** |
 | 11 | Docs, typedoc, README, бенчмарки, `v0.1.0` | Публикация в npm |
@@ -1854,7 +1869,7 @@ const result = await engine.recommend({
 
 **Этапы 6а и 8а добавлены ревизией плана (0.5).** Пакеты `@recoengine/testing` и `@recoengine/features` были в раскладке (§8, дерево пакетов) и в правиле зависимостей `check-arch`, но ни одна стадия их не строила — план молча оставлял два из шести пакетов пустыми до самого релиза. `testing` особенно: §21 называет contract-тесты **обязательными**, а до его появления каждый тест (включая golden-набор Этапа 5) катает фикстуры руками — общего kit, о котором говорит §20, ещё нет. Он поставлен сразу после `modifiers`, чтобы диверсификаторы и доменные плагины проверялись контрактом, а не переоткрытым каждый раз мок-движком. `features` — перед доменными примерами, как их общая база. Номера с буквами (а не сдвиг 7→8→…) — чтобы не переписывать ссылки на «Этап 8 = explainability», разбросанные по документу.
 
-Этапы 0–8 закрыты: 646 тестов, покрытие ядра 95.4%, CI зелёный на Node 20/22/24, Bun и Deno. Текущее состояние работы, открытые долги и точка входа для продолжения — в [PROGRESS.md](./PROGRESS.md); этот документ описывает архитектуру, а не прогресс.
+Этапы 0–8а закрыты (все восемь пакетов построены): 656 тестов, покрытие ядра 95.4%, CI зелёный на Node 20/22/24, Bun и Deno. Текущее состояние работы, открытые долги и точка входа для продолжения — в [PROGRESS.md](./PROGRESS.md); этот документ описывает архитектуру, а не прогресс.
 
 ---
 

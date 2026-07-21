@@ -146,6 +146,13 @@ export interface StrategyContractOptions {
   readonly history?: History
   readonly signals?: ReadonlyMap<string, unknown>
   readonly now?: number
+  /**
+   * By default the harness auto-adds a `payloadExtractor` for the strategy's required
+   * features, reading them from `rows`. Set this when the features are instead produced by
+   * a real extractor/transform in `extraPlugins` — otherwise both declare the same key and
+   * `build()` rejects the collision.
+   */
+  readonly featuresFromPlugins?: boolean
 }
 
 /**
@@ -158,8 +165,9 @@ export async function assertScoringStrategy(
   options: StrategyContractOptions,
 ): Promise<void> {
   const keys = strategy.requires.map((key) => key as string)
+  const supply = options.featuresFromPlugins ? [] : [payloadExtractor(keys)]
   const engine = testEngine<FeatureRow>({
-    use: [catalogueOf(options.rows), payloadExtractor(keys), ...(options.extraPlugins ?? []), strategy],
+    use: [catalogueOf(options.rows), ...supply, ...(options.extraPlugins ?? []), strategy],
     ...(options.now === undefined ? {} : { now: options.now }),
   })
   const req = request({

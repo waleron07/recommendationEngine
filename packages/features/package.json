@@ -23,6 +23,9 @@
   "dependencies": {
     "@recoengine/core": "workspace:*"
   },
+  "devDependencies": {
+    "@recoengine/testing": "workspace:*"
+  },
   "publishConfig": {
     "access": "public"
   }

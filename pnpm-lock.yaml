@@ -47,6 +47,10 @@ importers:
       '@recoengine/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@recoengine/testing':
+        specifier: workspace:*
+        version: link:../testing
 
   packages/modifiers:
     dependencies:

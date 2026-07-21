@@ -7,12 +7,11 @@ candidates, and every item in the result can tell you why it is there — as dat
 
 > **Status: pre-alpha. Nothing is published to npm yet.**
 > The engine works end to end: retrieval → filtering → features → scoring → normalization →
-> combination → modifiers → ranking → diversification → explanation. 646 tests; CI green on
-> Node 20/22/24, Bun and Deno. The batteries are now built too — the strategy, modifier,
-> diversity and testing packages ship the standard plugins (stages 5–8), so you can use them
-> off the shelf or write your own, as the example below does. Only `@recoengine/features` and
-> the domain examples remain. The public API may still change. Current state:
-> [PROGRESS.md](./PROGRESS.md).
+> combination → modifiers → ranking → diversification → explanation. 656 tests; CI green on
+> Node 20/22/24, Bun and Deno. The batteries are built too — strategies, modifiers, diversity,
+> reusable features and the testing kit all ship the standard plugins (stages 5–8а), so you can
+> use them off the shelf or write your own, as the example below does. Only the domain examples
+> remain. The public API may still change. Current state: [PROGRESS.md](./PROGRESS.md).
 
 ## The idea
 
@@ -39,7 +38,7 @@ Not on npm yet. To try it, build from source:
 git clone https://github.com/waleron07/recommendationEngine.git
 cd recommendationEngine
 pnpm install
-pnpm verify     # lint + architecture check + build + 646 tests
+pnpm verify     # lint + architecture check + build + 656 tests
 ```
 
 Then import from `packages/core/src`, or run `pnpm build` and import from `packages/core/dist`.
@@ -204,7 +203,7 @@ twice: a bug report can be replayed, and an A/B test measures the variant rather
 | `@recoengine/modifiers` | Fatigue, novelty, boost | core | built (stage 6) |
 | `@recoengine/testing` | Fixtures and port contracts | core | built (stage 6а) |
 | `@recoengine/diversity` | MMR, quotas, similarity providers, blender | core | built (stage 7) |
-| `@recoengine/features` | Reusable extractors and transforms | core | empty (stage 8а) |
+| `@recoengine/features` | Reusable extractors and transforms | core | built (stage 8а) |
 
 ## Design highlights
 
@@ -226,7 +225,7 @@ Full reasoning: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ```bash
 pnpm verify     # lint + check:arch + build + test — what CI runs
-pnpm test       # 646 tests
+pnpm test       # 656 tests
 pnpm bench      # benchmarks: they measure, they do not assert
 pnpm docs       # typedoc
 ```
@@ -254,8 +253,8 @@ debts live in [PROGRESS.md](./PROGRESS.md).
 | 6а | `@recoengine/testing` — fixtures and port contracts | done |
 | 7 | `@recoengine/diversity` — MMR, quotas, similarity, blender | done |
 | 8 | Explainability — trace, rounded scale, `engine.explain()` | done |
-| 8а | `@recoengine/features` — reusable extractors and transforms | next |
-| 9 | Music example | |
+| 8а | `@recoengine/features` — reusable extractors and transforms | done |
+| 9 | Music example | next |
 | 10 | E-commerce example — the acceptance test for domain independence | |
 | 11 | Docs, benchmarks, `v0.1.0` | publish |
 
