@@ -395,4 +395,4 @@ examples/music/src/
 | `2f46bbb` | Этап 8 закрыт: explainability в ядре (округление, ScoreTrace, engine.explain), 3 долга §5, ARCHITECTURE §16.1 сведён |
 | `a1d856e` | Аудит после Этапа 8: починен рассинхрон lockfile, актуализированы README/PROGRESS |
 | `de604ff` | Этап 8а закрыт: `@recoengine/features` (2 экстрактора + 2 трансформа), флаг `featuresFromPlugins` в kit, ARCHITECTURE §11.3.1 сведён |
-| _(pending)_ | Этап 9 закрыт: `examples/music` (5 экстракторов + датасет + движок), 7 e2e-тестов, 0 изменений в core, ARCHITECTURE §22 сведён |
+| `ec24e13` | Этап 9 закрыт: `examples/music` (5 экстракторов + датасет + движок), 7 e2e-тестов, 0 изменений в core, ARCHITECTURE §22 сведён |
