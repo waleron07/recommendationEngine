@@ -7,6 +7,7 @@ import { contributionOf, type RecommendationEngine, type ScoreModifier, strategy
 import { describe, expect, it } from 'vitest'
 import {
   assertDeterministic,
+  assertExplanationSums,
   assertExtractorErrorPolicy,
   assertHonoursCancellation,
   assertScoreModifier,
@@ -46,6 +47,13 @@ describe('fixtures', () => {
 describe('contracts pass on conformant ports', () => {
   it('assertScoringStrategy on a passthrough strategy', async () => {
     await assertScoringStrategy(passthroughStrategy('score'), { rows })
+  })
+
+  it('assertExplanationSums on a real engine', async () => {
+    const engine = testEngine({
+      use: [catalogueOf(rows), payloadExtractor(['score']), passthroughStrategy('score')],
+    })
+    await assertExplanationSums(engine)
   })
 
   it('assertScoreModifier on a well-behaved modifier', async () => {

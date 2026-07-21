@@ -15,6 +15,7 @@
 
 export {
   assertDeterministic,
+  assertExplanationSums,
   assertExtractorErrorPolicy,
   assertHonoursCancellation,
   assertScoreModifier,

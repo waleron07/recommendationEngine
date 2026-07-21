@@ -107,6 +107,36 @@ export async function assertScoresWellFormed(
   })
 }
 
+/**
+ * Explainability is structural (§16): a score is a fold over its contributions, so
+ * `Σ (additive contributions) = baseScore` must hold exactly for every recommendation.
+ * A drift here means the explanation and the number it explains have come apart — the one
+ * thing the board's design is supposed to make impossible. Checks the additive fold
+ * (`base = Σ(weight×norm)/Σweight`), which is what the presentation `baseScore` reflects;
+ * multiplicative and boost contributions move `score` off `baseScore` and are out of scope.
+ */
+export async function assertExplanationSums(
+  engine: RecommendationEngine,
+  req: RecommendationRequest = request(),
+): Promise<void> {
+  const { recommendations } = await engine.recommend({ ...req, explain: 'full' })
+
+  for (const rec of recommendations) {
+    const additive = rec.explanation.contributions.filter((c) => c.kind === 'additive')
+    if (additive.length === 0) continue // Nothing additive to fold — cold start, base 0.
+    const weightSum = additive.reduce((s, c) => s + c.weight, 0)
+    if (weightSum === 0) continue
+    const base = additive.reduce((s, c) => s + c.weight * c.normalized, 0) / weightSum
+    const expected = Math.round(base * 100)
+    if (Math.abs(expected - rec.explanation.baseScore) > 1) {
+      fail(
+        `Σ contributions ≠ baseScore for "${rec.item.id}": folded ${expected}, ` +
+          `explanation says ${rec.explanation.baseScore}. The score and its explanation have drifted.`,
+      )
+    }
+  }
+}
+
 export interface StrategyContractOptions {
   /** Candidate rows carrying the strategy's required features as payload fields. */
   readonly rows: readonly FeatureRow[]

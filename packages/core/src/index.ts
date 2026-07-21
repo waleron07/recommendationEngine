@@ -11,7 +11,7 @@
 export type { Brand } from './domain/brand.js'
 export { type Candidate, type CandidateSet, CandidateSetBuilder } from './domain/candidate.js'
 export type { Event, EventType, History, Item, User } from './domain/entities.js'
-export type { Explanation, ScoreTrace } from './domain/explanation.js'
+export type { Explanation, ItemExplanation, ScoreTrace } from './domain/explanation.js'
 export {
   type FeatureDescriptor,
   type FeatureKind,

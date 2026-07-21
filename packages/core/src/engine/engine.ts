@@ -1,3 +1,5 @@
+import type { Explanation, ItemExplanation } from '../domain/explanation.js'
+import type { ItemId } from '../domain/ids.js'
 import { timestamp } from '../domain/ids.js'
 import type { RecommendationResult } from '../domain/recommendation.js'
 import { type EngineBlueprint, EngineBuilder } from '../kernel/builder.js'
@@ -6,7 +8,7 @@ import { BuilderSealedError } from '../kernel/errors.js'
 import type { ResolvedRegistry } from '../kernel/registry.js'
 import { CLOCK, LOGGER, METRICS, RNG } from '../kernel/token.js'
 import { Xoshiro128 } from '../math/rng.js'
-import { runPipeline } from '../pipeline/pipeline.js'
+import { type PipelineDeps, type PipelineProbe, runPipeline } from '../pipeline/pipeline.js'
 import type { RecommendationRequest } from '../pipeline/request.js'
 import type { Clock, Logger, Rng } from '../ports/infra.js'
 import type { ScoreCombiner } from '../ports/score-combiner.js'
@@ -23,6 +25,14 @@ import { assertCombinerId, DEFAULT_COMBINERS, DEFAULT_NORMALIZERS } from './defa
  */
 export interface RecommendationEngine<P = unknown, UP = unknown> {
   recommend(request: RecommendationRequest<P, UP>): Promise<RecommendationResult<P>>
+  /**
+   * "Why is this item where it is?" — including "why is it *not* in the feed" (§16).
+   *
+   * Runs the pipeline the request would and reports the item's fate: never retrieved,
+   * filtered, out-ranked, or on the page. The direct analogue of Elasticsearch's
+   * `_explain`, and what turns the engine from a black box into a tool.
+   */
+  explain(itemId: ItemId, request: RecommendationRequest<P, UP>): Promise<ItemExplanation<P>>
   /** What this engine is made of. For diagnostics and docs, not for reaching into. */
   inspect(): EngineDescription
   /** Disposes plugins in reverse dependency order: dependents die before dependencies. */
@@ -64,18 +74,36 @@ class Engine<P, UP> implements RecommendationEngine<P, UP> {
   }
 
   async recommend(request: RecommendationRequest<P, UP>): Promise<RecommendationResult<P>> {
-    const container: Container = this.blueprint.container
+    return runPipeline<P, UP>(this.blueprint, request, this.depsFor())
+  }
 
-    return runPipeline<P, UP>(this.blueprint, request, {
-      // Resolved per request rather than cached in a field: a host may rebind the clock on
-      // a child container, and reading through the container is what makes that work.
+  async explain(itemId: ItemId, request: RecommendationRequest<P, UP>): Promise<ItemExplanation<P>> {
+    // The probe collects each stage's survivors as the pipeline runs; `explain: 'full'`
+    // forces the trace on so a scored item carries its whole story. Same pipeline as
+    // recommend(), same answer — this only watches one item through it.
+    const probe: PipelineProbe<P> = {}
+    const result = await runPipeline<P, UP>(
+      this.blueprint,
+      { ...request, explain: 'full' },
+      { ...this.depsFor(), probe },
+    )
+    return interpretProbe<P>(itemId, probe, result.diagnostics)
+  }
+
+  /**
+   * Resolved per request rather than cached in a field: a host may rebind the clock on a
+   * child container, and reading through the container is what makes that work.
+   */
+  private depsFor(): PipelineDeps<P> {
+    const container: Container = this.blueprint.container
+    return {
       clock: container.tryGet(CLOCK) ?? systemClock,
       rng: container.tryGet(RNG) ?? defaultRng,
       logger: container.tryGet(LOGGER) ?? silentLogger,
       metrics: container.tryGet(METRICS),
       normalizers: this.normalizers,
       combiners: this.combiners,
-    })
+    }
   }
 
   inspect(): EngineDescription {
@@ -171,6 +199,67 @@ export type EngineBuilderWithDefaults<P = unknown, UP = unknown> = DefaultingEng
  */
 export function createEngine<P = unknown, UP = unknown>(): DefaultingEngineBuilder<P, UP> {
   return new DefaultingEngineBuilder<P, UP>()
+}
+
+/**
+ * Reads one item's fate out of the pipeline probe.
+ *
+ * Walks the stages in order and stops at the first that lost the item, so the reported
+ * `lostAt` is the *earliest* explanation, not a later symptom. Once the item reached
+ * scoring it carries a full explanation regardless of where it ended up — that is what
+ * separates "dropped by fatigue" (scored 0, on the page) from "out-ranked" (scored well,
+ * below the fold) from "quota'd out" (scored well, dropped by a diversifier).
+ */
+function interpretProbe<P>(
+  itemId: ItemId,
+  probe: PipelineProbe<P>,
+  diagnostics: RecommendationResult<P>['diagnostics'],
+): ItemExplanation<P> {
+  const retrieved = probe.retrieved
+  const retrievedRow = retrieved?.indexOf(itemId) ?? -1
+  if (retrieved === undefined || retrievedRow < 0) {
+    return { itemId, item: undefined, status: 'not_retrieved', lostAt: 'retrieval', diagnostics }
+  }
+  const item = retrieved.at(retrievedRow).item
+
+  if (probe.prefiltered === undefined || probe.prefiltered.indexOf(itemId) < 0) {
+    return { itemId, item, status: 'filtered', lostAt: 'prefilter', diagnostics }
+  }
+
+  const scored = probe.scored
+  const row = scored?.indexOf(itemId) ?? -1
+  if (scored === undefined || row < 0) {
+    return { itemId, item, status: 'filtered', lostAt: 'postfilter', diagnostics }
+  }
+
+  // From here the item was scored, so it always carries a full explanation. `explainRow`
+  // is set whenever `scored` is (both under `if (deps.probe)`), so this is not optional in
+  // practice — the assertion states the invariant the two assignments share.
+  const explanation = (probe.explainRow as (r: number) => Explanation)(row)
+  const blendedIndex = probe.blended?.indexOf(row) ?? -1
+  const onPage = probe.page?.includes(row) ?? false
+
+  if (onPage) {
+    return { itemId, item, status: 'recommended', rank: blendedIndex + 1, explanation, diagnostics }
+  }
+  if (blendedIndex >= 0) {
+    return {
+      itemId,
+      item,
+      status: 'truncated',
+      lostAt: 'truncate',
+      rank: blendedIndex + 1,
+      explanation,
+      diagnostics,
+    }
+  }
+  // Scored but not in the blended order: a reorderer dropped it. Diversification is the
+  // one that removes rows (an attribute quota); the blender only reorders, so a gap there
+  // is reported distinctly rather than folded into "diversified out".
+  if (probe.diversified?.includes(row) ?? false) {
+    return { itemId, item, status: 'blended_out', lostAt: 'blending', explanation, diagnostics }
+  }
+  return { itemId, item, status: 'diversified_out', lostAt: 'diversification', explanation, diagnostics }
 }
 
 /** Last resorts, used only when the host bound nothing. */

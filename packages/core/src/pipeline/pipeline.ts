@@ -1,5 +1,7 @@
 import type { CandidateSet } from '../domain/candidate.js'
+import type { Explanation } from '../domain/explanation.js'
 import type { Recommendation, RecommendationResult } from '../domain/recommendation.js'
+import type { ScoreBoard } from '../domain/score.js'
 import { combinerFor, defaultExplainer, fillSlot, sortRanker } from '../engine/defaults.js'
 import type { EngineBlueprint } from '../kernel/builder.js'
 import type { RequestContext } from '../ports/context.js'
@@ -12,7 +14,7 @@ import { type RecommendationRequest, resolveRequest } from './request.js'
 import { DiagnosticsCollector, runStage, type StageId } from './stage.js'
 import { combine, modify } from './stages/combination.js'
 import { engineer } from './stages/engineering.js'
-import { explain } from './stages/explanation.js'
+import { explain, explanationForRow } from './stages/explanation.js'
 import { extract } from './stages/extraction.js'
 import { normalize } from './stages/normalization.js'
 import { postfilter } from './stages/postfilter.js'
@@ -21,13 +23,35 @@ import { blend, diversify, rank, truncate } from './stages/ranking.js'
 import { retrieve } from './stages/retrieval.js'
 import { score } from './stages/scoring.js'
 
-export interface PipelineDeps {
+export interface PipelineDeps<P = unknown> {
   readonly clock: Clock
   readonly rng: Rng
   readonly logger: Logger
   readonly metrics: Metrics | undefined
   readonly normalizers: ReadonlyMap<string, ScoreNormalizer>
   readonly combiners: ReadonlyMap<string, ScoreCombiner>
+  /**
+   * When set, the pipeline records each stage's survivors here so `engine.explain(itemId)`
+   * can trace one item's fate. A mutable out-parameter rather than an extra return value:
+   * the common `recommend()` path leaves it undefined and pays nothing, and there is only
+   * ever one pipeline implementation to keep the two paths honest with each other.
+   */
+  readonly probe?: PipelineProbe<P>
+}
+
+/** Intermediate state the pipeline exposes only to `engine.explain()` (§16). */
+export interface PipelineProbe<P = unknown> {
+  retrieved?: CandidateSet<P>
+  prefiltered?: CandidateSet<P>
+  /** Post-postfilter set — the one `board` and every row array below index into. */
+  scored?: CandidateSet<P>
+  board?: ScoreBoard
+  ranked?: readonly number[]
+  diversified?: readonly number[]
+  blended?: readonly number[]
+  page?: readonly number[]
+  /** Builds a full explanation for any row of `scored`, with the request's explainer. */
+  explainRow?: (row: number) => Explanation
 }
 
 /**
@@ -42,7 +66,7 @@ export interface PipelineDeps {
 export async function runPipeline<P, UP>(
   blueprint: EngineBlueprint<P>,
   request: RecommendationRequest<P, UP>,
-  deps: PipelineDeps,
+  deps: PipelineDeps<P>,
 ): Promise<RecommendationResult<P>> {
   const { registry } = blueprint
   const diagnostics = new DiagnosticsCollector()
@@ -98,6 +122,11 @@ export async function runPipeline<P, UP>(
   let candidates = approved
   let set: CandidateSet<P> = candidates.build()
 
+  if (deps.probe) {
+    deps.probe.retrieved = retrieved.build()
+    deps.probe.prefiltered = set
+  }
+
   const extracted = await stage(
     'extraction',
     set.size,
@@ -134,6 +163,8 @@ export async function runPipeline<P, UP>(
   candidates = filtered.candidates
   set = filtered.set
   matrix = filtered.matrix
+
+  if (deps.probe) deps.probe.scored = set
 
   const columns = await stage(
     'scoring',
@@ -199,19 +230,23 @@ export async function runPipeline<P, UP>(
     async () => truncate(blended, ctx),
   )
 
+  const explainer = fillSlot(registry.explainer, defaultExplainer as never)
+
+  if (deps.probe) {
+    deps.probe.board = board
+    deps.probe.ranked = ranked
+    deps.probe.diversified = diversified
+    deps.probe.blended = blended
+    deps.probe.page = page
+    deps.probe.explainRow = (row) =>
+      explanationForRow(row, explainer, board, set, matrix, ctx, policyFor('explanation'))
+  }
+
   const recommendations = await stage(
     'explanation',
     page.length,
     (r: readonly Recommendation<P>[]) => r.length,
-    async () =>
-      explain(
-        page,
-        fillSlot(registry.explainer, defaultExplainer as never),
-        board,
-        set,
-        ctx,
-        policyFor('explanation'),
-      ),
+    async () => explain(page, explainer, board, set, matrix, ctx, policyFor('explanation')),
   )
 
   return await stage(
