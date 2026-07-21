@@ -7,6 +7,7 @@
     { "path": "./packages/modifiers" },
     { "path": "./packages/diversity" },
     { "path": "./packages/testing" },
-    { "path": "./packages/recoengine" }
+    { "path": "./packages/recoengine" },
+    { "path": "./examples/music" }
   ]
 }

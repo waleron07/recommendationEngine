@@ -7,11 +7,12 @@ candidates, and every item in the result can tell you why it is there — as dat
 
 > **Status: pre-alpha. Nothing is published to npm yet.**
 > The engine works end to end: retrieval → filtering → features → scoring → normalization →
-> combination → modifiers → ranking → diversification → explanation. 656 tests; CI green on
+> combination → modifiers → ranking → diversification → explanation. 663 tests; CI green on
 > Node 20/22/24, Bun and Deno. The batteries are built too — strategies, modifiers, diversity,
-> reusable features and the testing kit all ship the standard plugins (stages 5–8а), so you can
-> use them off the shelf or write your own, as the example below does. Only the domain examples
-> remain. The public API may still change. Current state: [PROGRESS.md](./PROGRESS.md).
+> reusable features and the testing kit all ship the standard plugins (stages 5–8а). A full
+> music recommender ([`examples/music`](./examples/music)) is built entirely on those packages
+> with **zero changes to the core** — the abstraction's acceptance test. The e-commerce example
+> is next. The public API may still change. Current state: [PROGRESS.md](./PROGRESS.md).
 
 ## The idea
 
@@ -38,7 +39,7 @@ Not on npm yet. To try it, build from source:
 git clone https://github.com/waleron07/recommendationEngine.git
 cd recommendationEngine
 pnpm install
-pnpm verify     # lint + architecture check + build + 656 tests
+pnpm verify     # lint + architecture check + build + 663 tests
 ```
 
 Then import from `packages/core/src`, or run `pnpm build` and import from `packages/core/dist`.
@@ -225,7 +226,7 @@ Full reasoning: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ```bash
 pnpm verify     # lint + check:arch + build + test — what CI runs
-pnpm test       # 656 tests
+pnpm test       # 663 tests
 pnpm bench      # benchmarks: they measure, they do not assert
 pnpm docs       # typedoc
 ```
@@ -254,8 +255,8 @@ debts live in [PROGRESS.md](./PROGRESS.md).
 | 7 | `@recoengine/diversity` — MMR, quotas, similarity, blender | done |
 | 8 | Explainability — trace, rounded scale, `engine.explain()` | done |
 | 8а | `@recoengine/features` — reusable extractors and transforms | done |
-| 9 | Music example | next |
-| 10 | E-commerce example — the acceptance test for domain independence | |
+| 9 | Music example (`examples/music`) — zero core changes | done |
+| 10 | E-commerce example — the acceptance test for domain independence | next |
 | 11 | Docs, benchmarks, `v0.1.0` | publish |
 
 Stage 10 is not a demo. If a second domain requires touching `core`, the abstraction leaked and gets

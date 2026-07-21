@@ -30,6 +30,24 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@vitest/coverage-v8@4.1.10)(vite@8.1.4(yaml@2.9.0))
 
+  examples/music:
+    dependencies:
+      '@recoengine/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@recoengine/diversity':
+        specifier: workspace:*
+        version: link:../../packages/diversity
+      '@recoengine/features':
+        specifier: workspace:*
+        version: link:../../packages/features
+      '@recoengine/modifiers':
+        specifier: workspace:*
+        version: link:../../packages/modifiers
+      '@recoengine/strategies':
+        specifier: workspace:*
+        version: link:../../packages/strategies
+
   packages/core: {}
 
   packages/diversity:

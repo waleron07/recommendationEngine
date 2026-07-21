@@ -2,7 +2,9 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['packages/*/src/**/*.test.ts'],
+    // Examples are tested too — a domain example that does not run is worse than none (§21),
+    // and stage 9's whole point is proving the abstraction works end to end on a real domain.
+    include: ['packages/*/src/**/*.test.ts', 'examples/*/src/**/*.test.ts'],
     // Benchmarks live outside the packages and outside `pnpm verify`: they measure, they
     // do not assert, and a number that varies with the runner cannot gate a merge without
     // turning CI into a coin toss. Run them with `pnpm bench` when a change should have
