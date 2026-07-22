@@ -10,8 +10,8 @@ candidates, and every item in the result can tell you why it is there — as dat
 > combination → modifiers → ranking → diversification → explanation. 672 tests; CI green on
 > Node 20/22/24, Bun and Deno. The batteries are built too — strategies, modifiers, diversity,
 > reusable features and the testing kit all ship the standard plugins (stages 5–8а). Two full
-> domains — a music recommender ([`examples/music`](./examples/music)) and an e-commerce one
-> ([`examples/ecommerce`](./examples/ecommerce)) — run on those same packages with **zero
+> domains — a music recommender ([`examples/music`](./examples/music/README.md)) and an e-commerce one
+> ([`examples/ecommerce`](./examples/ecommerce/README.md)) — run on those same packages with **zero
 > changes to the core**, which is the abstraction's acceptance test. The `v0.1.0` release is
 > prepared — batteries-included `recoengine` facade, changelogs, zero lint warnings — and only
 > the npm publish itself remains ([RELEASING.md](./RELEASING.md)). The public API may still
