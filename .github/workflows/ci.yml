@@ -30,7 +30,8 @@ jobs:
 
   # ARCHITECTURE.md §23.5 claims @recoengine/core runs on Node, Bun, Deno and in
   # the browser. A claim that is not exercised is a claim that quietly stops being
-  # true, so every runtime named in the doc gets a row here.
+  # true, so every server runtime named in the doc gets a row here; the browser gets
+  # its own job below (it needs Chromium, which the others do not).
   runtimes:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -63,3 +64,27 @@ jobs:
 
       - name: Import the built core and assert it loaded
         run: ${{ matrix.runtime }} scripts/smoke.mjs
+
+  # The browser half of the §23.5 isomorphism claim. A stray node:* import or an
+  # export-map typo the server runtimes tolerate can still break a browser, so the built
+  # core is loaded as a <script type="module"> in headless Chromium and put through the
+  # same checks. Playwright is installed ephemerally here rather than added to the repo's
+  # manifest, so the lockfile the other jobs pin stays untouched.
+  browser:
+    name: Browser (headless Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Install Playwright Chromium (ephemeral, not in the repo manifest)
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Load the built core in a headless browser and assert it works
+        run: node scripts/smoke-browser.mjs

@@ -1885,10 +1885,10 @@ const result = await engine.recommend({
    - `fork(seed)` — чистая функция от seed'ов, а не от состояния родителя. Иначе поток, который достался пользователю, зависел бы от того, сколько запросов прошло до него, и воспроизводимость стала бы функцией трафика — то есть исчезла бы.
    - Параллелизм внутри стадий — только `Promise.all`, без `worker_threads`. Реальный параллелизм — забота адаптера снаружи.
    - Всё I/O (БД, кэш, сеть) — исключительно за портами; адаптеры живут в отдельных пакетах.
-   - Тесты ядра гоняются в двух окружениях vitest: `node` и `jsdom`/`browser`.
+   - Полный набор тестов ядра гоняется в node-vitest; браузер проверяется отдельным load-smoke (собранный ESM грузится в headless Chromium и проходит те же базовые проверки, что серверный smoke), а не всем набором — та же оговорка, что и у рантайм-матрицы Bun/Deno.
 5. ~~**Версия TS / целевой Node?**~~ **РЕШЕНО: TS 5.9+, Node 20+, ESM-only, без CJS.** Ключевое — «`@recoengine/core` не использует Node API вообще» проверяется машиной, а не обещанием в README:
    - lint-правило `noRestrictedImports` на `node:*`, `fs`, `path`, `crypto`, `worker_threads` в `packages/core/**` — ошибка сборки;
-   - CI-матрица: **Node 20, Node 22, Bun, Deno, браузер** (vitest browser mode). Пакет, случайно затащивший Node API, красит матрицу;
+   - CI-матрица: **Node 20/22/24, Bun, Deno** (job `runtimes`, smoke) + **браузер** (job `browser`, headless Chromium). Пакет, случайно затащивший Node API, красит матрицу. Браузер сделан не через vitest browser mode (как намечалось), а прямым playwright-smoke — `scripts/smoke-browser.mjs` грузит собранный ESM ядра `<script type="module">` в Chromium и гоняет те же проверки, что серверный smoke; playwright ставится эфемерно в CI-job, чтобы не тащить его в lockfile (Этап 11);
    - `package.json`: `"type": "module"`, `"exports"` без `require`-ветки, `"sideEffects": false`, `"engines": { "node": ">=20" }`.
    Bun и Deno при этом — не заявленная поддержка «на словах», а строки в CI. Только так это утверждение остаётся правдой через год.
 6. ~~**Scope в npm?**~~ **РЕШЕНО: `@recoengine/*`.**
