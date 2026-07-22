@@ -189,7 +189,10 @@ describe('config layering (§10)', () => {
     const seen: unknown[] = []
     const provider: WeightProvider = {
       id: 'spy',
-      weights: (ctx) => (seen.push(ctx), new Map()),
+      weights: (ctx) => {
+        seen.push(ctx)
+        return new Map()
+      },
     }
     resolveRequest(request(), deps({ weightProvider: provider }))
 

@@ -1,6 +1,6 @@
 {
   "name": "recoengine",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Algorithmic, explainable recommendation engine — batteries-included meta package. Re-exports @recoengine/core plus the default strategy, feature, modifier and diversity plugins.",
   "keywords": [
     "recommendation",

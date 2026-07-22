@@ -1,6 +1,6 @@
 {
   "name": "@recoengine/strategies",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Domain-neutral scoring strategies for @recoengine/core.",
   "license": "MIT",
   "type": "module",

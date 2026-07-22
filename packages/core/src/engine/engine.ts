@@ -24,7 +24,7 @@ import { assertCombinerId, DEFAULT_COMBINERS, DEFAULT_NORMALIZERS } from './defa
  * stateless by contract. Everything that changes during a request lives in the request.
  */
 export interface RecommendationEngine<P = unknown, UP = unknown> {
-  recommend(request: RecommendationRequest<P, UP>): Promise<RecommendationResult<P>>
+  recommend(request: RecommendationRequest<UP>): Promise<RecommendationResult<P>>
   /**
    * "Why is this item where it is?" — including "why is it *not* in the feed" (§16).
    *
@@ -32,7 +32,7 @@ export interface RecommendationEngine<P = unknown, UP = unknown> {
    * filtered, out-ranked, or on the page. The direct analogue of Elasticsearch's
    * `_explain`, and what turns the engine from a black box into a tool.
    */
-  explain(itemId: ItemId, request: RecommendationRequest<P, UP>): Promise<ItemExplanation<P>>
+  explain(itemId: ItemId, request: RecommendationRequest<UP>): Promise<ItemExplanation<P>>
   /** What this engine is made of. For diagnostics and docs, not for reaching into. */
   inspect(): EngineDescription
   /** Disposes plugins in reverse dependency order: dependents die before dependencies. */
@@ -73,11 +73,11 @@ class Engine<P, UP> implements RecommendationEngine<P, UP> {
     this.combiners = combiners
   }
 
-  async recommend(request: RecommendationRequest<P, UP>): Promise<RecommendationResult<P>> {
+  async recommend(request: RecommendationRequest<UP>): Promise<RecommendationResult<P>> {
     return runPipeline<P, UP>(this.blueprint, request, this.depsFor())
   }
 
-  async explain(itemId: ItemId, request: RecommendationRequest<P, UP>): Promise<ItemExplanation<P>> {
+  async explain(itemId: ItemId, request: RecommendationRequest<UP>): Promise<ItemExplanation<P>> {
     // The probe collects each stage's survivors as the pipeline runs; `explain: 'full'`
     // forces the trace on so a scored item carries its whole story. Same pipeline as
     // recommend(), same answer — this only watches one item through it.

@@ -1,6 +1,6 @@
 {
   "name": "@recoengine/modifiers",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Score modifiers for @recoengine/core: fatigue, novelty, boosts and penalties.",
   "license": "MIT",
   "type": "module",

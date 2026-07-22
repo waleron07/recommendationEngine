@@ -9,8 +9,15 @@ import type { Clock, Logger, Rng } from '../ports/infra.js'
 import type { WeightProvider } from '../ports/weight-provider.js'
 import type { DiagnosticsCollector } from './stage.js'
 
-/** What the caller asks for. */
-export interface RecommendationRequest<P = unknown, UP = unknown> {
+/**
+ * What the caller asks for.
+ *
+ * Typed by the *user* payload `UP` only. There is deliberately no item-payload parameter:
+ * the request never names candidates — they come from the `CandidateProvider`, which is
+ * where the item type lives. An `<Item>` parameter here would type-check nothing (no field
+ * references it) while implying the request is bound to a catalogue it never sees.
+ */
+export interface RecommendationRequest<UP = unknown> {
   readonly user: User<UP>
   readonly history: History
   readonly limit: number
@@ -39,8 +46,8 @@ export interface RequestDeps {
  * one engine instance serve concurrent requests without a lock: the registry is frozen at
  * `build()`, the context is frozen at stage 0, and there is nothing left to race on.
  */
-export function resolveRequest<P, UP>(
-  request: RecommendationRequest<P, UP>,
+export function resolveRequest<UP>(
+  request: RecommendationRequest<UP>,
   deps: RequestDeps,
 ): RequestContext<UP> {
   // Before anything else. Stage 0 is the one stage outside `runStage`, so it has to check

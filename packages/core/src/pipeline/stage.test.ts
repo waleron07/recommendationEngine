@@ -141,7 +141,15 @@ describe('middleware', () => {
   it('tells the middleware which stage it is wrapping', async () => {
     const seen: unknown[] = []
     await run({
-      middleware: [{ id: 'spy', intercept: async (stage, _ctx, next) => (seen.push(stage), next()) }],
+      middleware: [
+        {
+          id: 'spy',
+          intercept: async (stage, _ctx, next) => {
+            seen.push(stage)
+            return next()
+          },
+        },
+      ],
       run: async () => 'done',
     }).promise
 

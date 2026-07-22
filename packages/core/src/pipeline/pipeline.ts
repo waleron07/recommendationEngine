@@ -65,7 +65,7 @@ export interface PipelineProbe<P = unknown> {
  */
 export async function runPipeline<P, UP>(
   blueprint: EngineBlueprint<P>,
-  request: RecommendationRequest<P, UP>,
+  request: RecommendationRequest<UP>,
   deps: PipelineDeps<P>,
 ): Promise<RecommendationResult<P>> {
   const { registry } = blueprint
@@ -178,7 +178,7 @@ export async function runPipeline<P, UP>(
     'normalization',
     columns.length,
     (c) => c.length,
-    async () => normalize(columns, deps.normalizers, ctx, policyFor('normalization')),
+    async () => normalize(columns, deps.normalizers, ctx),
   )
 
   const combined = await stage(

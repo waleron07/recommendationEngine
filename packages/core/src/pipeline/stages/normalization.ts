@@ -1,7 +1,6 @@
 import { RecoError } from '../../kernel/errors.js'
 import type { RequestContext } from '../../ports/context.js'
 import type { NormalizedColumn, ScoreNormalizer } from '../../ports/score-normalizer.js'
-import type { PolicyContext } from '../policy.js'
 import { rethrowIfAborted } from '../policy.js'
 import type { ScoredColumn } from './scoring.js'
 
@@ -21,7 +20,6 @@ export function normalize(
   columns: readonly ScoredColumn[],
   normalizers: ReadonlyMap<string, ScoreNormalizer>,
   ctx: RequestContext,
-  policy: PolicyContext,
 ): readonly NormalizedColumn[] {
   const out: NormalizedColumn[] = []
 

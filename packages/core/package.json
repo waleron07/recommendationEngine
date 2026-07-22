@@ -1,6 +1,6 @@
 {
   "name": "@recoengine/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Domain-agnostic recommendation engine core: pipeline, ports, scoring, explainability. Zero dependencies, runs on Node, Bun, Deno and in the browser.",
   "keywords": [
     "recommendation",

@@ -20,7 +20,10 @@
     "lint:fix": "biome check --write .",
     "check:arch": "node scripts/check-arch.mjs",
     "docs": "typedoc",
-    "verify": "pnpm lint && pnpm check:arch && pnpm build && pnpm test"
+    "verify": "pnpm lint && pnpm check:arch && pnpm build && pnpm test",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm verify && changeset publish"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
