@@ -1,6 +1,6 @@
 import type { History, User } from '../domain/entities.js'
 import { MapHistoryIndex } from '../domain/history.js'
-import { type StrategyId, type Timestamp, timestamp } from '../domain/ids.js'
+import { type StrategyId, strategyId, type Timestamp, timestamp } from '../domain/ids.js'
 import type { DiagnosticWarning } from '../domain/recommendation.js'
 import { ConfigResolver, type DeepPartial, type EngineConfig, type ResolvedConfig } from '../kernel/config.js'
 import { RecoError } from '../kernel/errors.js'
@@ -90,7 +90,39 @@ export function resolveRequest<UP>(
     signal: buildSignal(request.signal, config.limits.timeoutMs),
   }
 
-  return Object.freeze(withWeights(ctx, deps.weightProvider))
+  return Object.freeze(reapplyRequestWeights(withWeights(ctx, deps.weightProvider), request.overrides))
+}
+
+/**
+ * §10: `request.overrides` outrank the `WeightProvider`.
+ *
+ * The override weights were folded into `config` at the top of `resolveRequest`, and then
+ * `withWeights` layered the provider on top of the whole config — so a weight the caller
+ * set for *this one call* could be silently overwritten by the provider. That inverted the
+ * documented priority (overrides are layer 1, the provider layer 2). Re-applying the
+ * override weights here, last, restores it: the caller wins.
+ *
+ * Only weights are re-applied — every other field of `overrides` is resolved once and not
+ * touched by the provider, so it already sits at the right priority.
+ */
+function reapplyRequestWeights<UP>(
+  ctx: RequestContext<UP>,
+  overrides: DeepPartial<EngineConfig> | undefined,
+): RequestContext<UP> {
+  const overrideWeights = overrides?.weights
+  if (overrideWeights === undefined) return ctx
+
+  const weights = new Map<StrategyId, number>(ctx.config.weights)
+  let changed = false
+  for (const [id, weight] of Object.entries(overrideWeights)) {
+    const key = strategyId(id)
+    // Skip keys the config never had (build() already rejected unknown strategies) and
+    // weights the provider left as the caller wanted them — no need to rebuild for a no-op.
+    if (typeof weight !== 'number' || !weights.has(key) || weights.get(key) === weight) continue
+    weights.set(key, weight)
+    changed = true
+  }
+  return changed ? { ...ctx, config: Object.freeze({ ...ctx.config, weights }) } : ctx
 }
 
 /**

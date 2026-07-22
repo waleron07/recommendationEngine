@@ -173,6 +173,29 @@ describe('config layering (§10)', () => {
     expect(ctx.config.weights.get(strategyId('genre'))).toBe(1)
   })
 
+  it('lets request.overrides outrank the WeightProvider (§10: overrides are layer 1)', () => {
+    // Regression for the §5 debt: the provider used to win because it was applied last over
+    // the fully-resolved config, silently overwriting a weight the caller set for this call.
+    const provider: WeightProvider = {
+      id: 'bandit',
+      weights: () => new Map([[strategyId('artist'), 0.1]]),
+    }
+    const ctx = resolveRequest(
+      request({ overrides: { weights: { artist: 0.9 } } }),
+      deps({ config: config(['artist', 'genre']), weightProvider: provider }),
+    )
+
+    // Caller said 0.9 for this call; the bandit said 0.1. §10 makes the caller win.
+    expect(ctx.config.weights.get(strategyId('artist'))).toBe(0.9)
+    // A strategy the caller did not override still takes the provider's value.
+    const ctx2 = resolveRequest(
+      request({ overrides: { weights: { genre: 0.5 } } }),
+      deps({ config: config(['artist', 'genre']), weightProvider: provider }),
+    )
+    expect(ctx2.config.weights.get(strategyId('artist'))).toBe(0.1) // provider, not overridden
+    expect(ctx2.config.weights.get(strategyId('genre'))).toBe(0.5) // caller override
+  })
+
   it('ignores a weight for a strategy that is not registered', () => {
     const provider: WeightProvider = {
       id: 'bandit',

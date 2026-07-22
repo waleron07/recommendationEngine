@@ -168,6 +168,16 @@ describe('merging', () => {
     expect(config.fatigue.decay).toBe('exponential')
   })
 
+  it('treats a null patch value as "no override" instead of crashing (§5 regression)', () => {
+    // YAML `fatigue:` with an empty body deserializes to null. `null` used to replace the
+    // fatigue object, and the next validator to read `fatigue.floor` threw a raw TypeError.
+    // It is now treated like a missing key: the default survives, no crash.
+    const config = resolve({ limits: LIMITS, fatigue: null } as DeepPartial<EngineConfig>)
+
+    expect(config.fatigue.threshold).toBe(50)
+    expect(config.fatigue.decay).toBe('exponential')
+  })
+
   it('freezes the result — ctx.config is read by every stage of every request', () => {
     expect(Object.isFrozen(resolve({ limits: LIMITS }))).toBe(true)
   })

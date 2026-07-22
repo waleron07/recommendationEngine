@@ -141,12 +141,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * idempotent.
  */
 function merge(base: unknown, patch: unknown): unknown {
-  if (patch === undefined) return base
+  // `null` is treated as "no value given", the same as `undefined` — because that is what
+  // it means when it arrives. A host loading config from YAML gets `null` for an empty
+  // body (`fatigue:` with nothing under it), and untyped JSON can carry it too; `DeepPartial`
+  // does not allow it at the type level, but runtime config crosses the type boundary. Left
+  // to fall through, `null` replaced the object it was patching, and the next validator that
+  // read a field off it threw a raw `TypeError` — a §5 bug — instead of the config simply
+  // keeping its default.
+  if (patch === undefined || patch === null) return base
   if (!isPlainObject(base) || !isPlainObject(patch)) return patch
 
   const out: Record<string, unknown> = { ...base }
   for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue
+    if (value === undefined || value === null) continue
     out[key] = key in base ? merge(base[key], value) : value
   }
   return out

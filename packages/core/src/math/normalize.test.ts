@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { ScoreNormalizer } from '../ports/score-normalizer.js'
-import { identity, minmax, NORMALIZERS, rank, sigmoid, sigmoidScaled, zscore } from './normalize.js'
+import {
+  identity,
+  minmax,
+  NORMALIZERS,
+  rank,
+  sigmoid,
+  sigmoidScaled,
+  softmax,
+  softmaxScaled,
+  zscore,
+} from './normalize.js'
 import { Xoshiro128 } from './rng.js'
 
 const run = (normalizer: ScoreNormalizer, raw: number[]): number[] => [
@@ -174,6 +184,48 @@ describe('sigmoid', () => {
   })
 })
 
+describe('softmax', () => {
+  it('produces a distribution — the outputs sum to 1', () => {
+    const out = run(softmax, [1, 2, 3])
+    expect(out.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10)
+  })
+
+  it('maps a flat column to a uniform 1/n', () => {
+    expect(run(softmax, [7, 7, 7])).toEqual([1 / 3, 1 / 3, 1 / 3])
+  })
+
+  it('rewards the top exponentially — the leader takes more than a linear share', () => {
+    // Against minmax's linear 0 / 0.5 / 1, softmax pushes mass toward the largest value.
+    const out = run(softmax, [0, 1, 2])
+    expect(out[2] as number).toBeGreaterThan(0.6)
+    expect(out[0] as number).toBeLessThan(0.12)
+  })
+
+  it('does not overflow on large logits — the max-shift keeps exp finite', () => {
+    const out = run(softmax, [1000, 1001])
+    expect(Number.isFinite(out[0] as number)).toBe(true)
+    expect((out[0] as number) + (out[1] as number)).toBeCloseTo(1, 10)
+    expect(out[1] as number).toBeGreaterThan(out[0] as number)
+  })
+
+  it('takes a temperature: higher flattens toward uniform, lower sharpens', () => {
+    const sharp = run(softmaxScaled(0.5), [0, 1])[1] as number
+    const flat = run(softmaxScaled(5), [0, 1])[1] as number
+    expect(sharp).toBeGreaterThan(flat) // low τ concentrates mass on the leader
+    expect(flat).toBeGreaterThan(0.5)
+    expect(flat).toBeLessThan(0.6) // high τ is nearly uniform
+  })
+
+  it('names itself by its temperature', () => {
+    expect(softmaxScaled(2).id).toBe('softmax:2')
+    expect(softmaxScaled(1).id).toBe('softmax')
+  })
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses the temperature %s', (t) => {
+    expect(() => softmaxScaled(t)).toThrow(RangeError)
+  })
+})
+
 describe('identity', () => {
   it('passes the column through for a strategy that already normalized', () => {
     expect(run(identity, [0, 0.5, 1])).toEqual([0, 0.5, 1])
@@ -187,6 +239,13 @@ describe('identity', () => {
 
 describe('the registry', () => {
   it('offers every normalizer §12 names', () => {
-    expect(NORMALIZERS.map((n) => n.id).sort()).toEqual(['minmax', 'none', 'rank', 'sigmoid', 'zscore'])
+    expect(NORMALIZERS.map((n) => n.id).sort()).toEqual([
+      'minmax',
+      'none',
+      'rank',
+      'sigmoid',
+      'softmax',
+      'zscore',
+    ])
   })
 })

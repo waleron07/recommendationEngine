@@ -182,8 +182,56 @@ export const identity: ScoreNormalizer = {
   normalize: (raw) => raw,
 }
 
+/**
+ * Softmax: `exp(xᵢ/τ) / Σ exp(xⱼ/τ)`, the exponential-share normalizer.
+ *
+ * Where `minmax` spreads a column linearly and `rank` throws magnitudes away, softmax
+ * keeps magnitudes and rewards the top *exponentially*: a candidate twice as far ahead is
+ * more than twice as favoured. Temperature `τ` is the sharpness dial — low `τ` concentrates
+ * the mass near the leaders, high `τ` flattens toward uniform. It is the right shape when a
+ * strategy's raw score is a log-odds or a logit and you want a probability-like emphasis
+ * rather than a flat rescale.
+ *
+ * The output is a distribution — it sums to 1 — so on a large column every value is small
+ * in absolute terms; order is preserved, but a strategy using softmax usually wants a
+ * higher weight to compensate. Computed as `exp(x − max)` rather than `exp(x)` so a column
+ * of large logits cannot overflow `exp` into `Infinity`; the shift cancels in the ratio, so
+ * the result is identical and merely finite. A degenerate column (all equal) maps to a flat
+ * `1/n`, which is correct rather than a special case.
+ */
+export function softmaxScaled(temperature = 1): ScoreNormalizer {
+  if (!Number.isFinite(temperature) || temperature <= 0) {
+    throw new RangeError(`softmax temperature must be a positive finite number, got ${temperature}.`)
+  }
+  return {
+    id: temperature === 1 ? 'softmax' : `softmax:${temperature}`,
+    normalize: (raw) => {
+      const out = new Float64Array(raw.length)
+      if (raw.length === 0) return out
+
+      let max = Number.NEGATIVE_INFINITY
+      for (const value of raw) if (value > max) max = value
+      // A column of all -Infinity (or worse) leaves nothing to normalize against; 0.5 is
+      // the same "no information" answer minmax gives a flat column, and keeps stage 6 happy.
+      if (!Number.isFinite(max)) return out.fill(0.5)
+
+      let sum = 0
+      for (let i = 0; i < raw.length; i++) {
+        const e = Math.exp(((raw[i] as number) - max) / temperature)
+        out[i] = e
+        sum += e
+      }
+      // The max element contributes exp(0) = 1, so `sum` is at least 1 — never zero.
+      for (let i = 0; i < raw.length; i++) out[i] = (out[i] as number) / sum
+      return out
+    },
+  }
+}
+
+export const softmax: ScoreNormalizer = softmaxScaled(1)
+
 /** Every built-in, by id. What `normalization.default` and `perStrategy` resolve against. */
-export const NORMALIZERS: readonly ScoreNormalizer[] = [minmax, zscore, rank, sigmoid, identity]
+export const NORMALIZERS: readonly ScoreNormalizer[] = [minmax, zscore, rank, sigmoid, softmax, identity]
 
 function logistic(value: number): number {
   return 1 / (1 + Math.exp(-value))

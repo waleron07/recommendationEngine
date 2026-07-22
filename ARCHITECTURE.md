@@ -1854,7 +1854,7 @@ const result = await engine.recommend({
 | ✅ 1 | `domain/` — сущности, ids, FeatureMatrix (+arity), ProfileVector, ScoreBoard, HistoryIndex | 100% покрытие, property-тесты |
 | ✅ 2 | `kernel/` — container, EngineBuilder(=Registry), plugin host, config, валидация графа фичей, freeze + schema.version | Плагин с недостающей фичей падает на `build()`; `use()` после `build()` бросает |
 | ✅ 3 | `pipeline/` — стадии, middleware, диагностика, **cancellation + error policy** | Пустой движок отдаёт пустой результат с таймингами; прерванный сигнал даёт `AbortError` на каждой стадии |
-| ✅ 4 | `math/` — нормализаторы, similarity, rrf, decay, heap, rng | Property-тесты, бенчмарки. **`softmax` и `mmr` перенесены**: первый пока никому не понадобился, второй принадлежит Этапу 7 |
+| ✅ 4 | `math/` — нормализаторы, similarity, rrf, decay, heap, rng | Property-тесты, бенчмарки. `mmr` — в Этапе 7; **`softmax` дописан на Этапе 11** (`softmaxScaled`, стабильный, температура) |
 | ✅ 5 | `@recoengine/strategies` — 9 стратегий | Golden-тесты на синтетике |
 | ✅ 6 | `@recoengine/modifiers` — fatigue, novelty, boost | Кривые затухания и восстановления |
 | ✅ 6а | `@recoengine/testing` — фикстуры, golden-раннер, contract-test kit | Порт проверяется на контракт одной строкой; входят прерванный сигнал (§17.1) и обе `errorPolicy` (§17.2) |

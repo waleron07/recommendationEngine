@@ -92,7 +92,17 @@ export type { Registry, ResolvedRegistry, SlotOptions } from './kernel/registry.
 export { CACHE, CLOCK, LOGGER, METRICS, RNG, type Token, token } from './kernel/token.js'
 export { exponentialDecay, gaussianDecay, linearDecay, recovery } from './math/decay.js'
 export { topK } from './math/heap.js'
-export { identity, minmax, NORMALIZERS, rank, sigmoid, sigmoidScaled, zscore } from './math/normalize.js'
+export {
+  identity,
+  minmax,
+  NORMALIZERS,
+  rank,
+  sigmoid,
+  sigmoidScaled,
+  softmax,
+  softmaxScaled,
+  zscore,
+} from './math/normalize.js'
 export { Xoshiro128 } from './math/rng.js'
 export { RRF_K, reciprocalRankNormalized, reciprocalRankScores } from './math/rrf.js'
 export { cosine, dot, jaccard, norm, weightedJaccard } from './math/similarity.js'

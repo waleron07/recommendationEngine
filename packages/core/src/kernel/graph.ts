@@ -94,8 +94,16 @@ function sortTransforms(
   transforms: readonly FeatureTransform[],
   producers: Producers,
 ): readonly FeatureTransform[] {
-  const byId = new Map<string, FeatureTransform>()
-  for (const transform of transforms) byId.set(transform.id, transform)
+  // Edges are keyed by the feature key → the transform that produces it, **not** by the
+  // producer's id. Keying by id was a §5 bug: an extractor and a transform are allowed to
+  // share an id, so an extractor-produced input whose owner id happened to match some
+  // transform's id created a phantom transform-to-transform edge — and, if that transform
+  // read the first one's output, a `DEPENDENCY_CYCLE` that does not exist. Only real
+  // transform outputs impose ordering, so only they go in this map.
+  const producedByTransform = new Map<FeatureKey, FeatureTransform>()
+  for (const transform of transforms) {
+    for (const descriptor of transform.provides) producedByTransform.set(descriptor.key, transform)
+  }
 
   const sorted: FeatureTransform[] = []
   const done = new Set<string>()
@@ -116,13 +124,12 @@ function sortTransforms(
     onPath.add(transform.id)
     path.push(transform.id)
     for (const key of transform.requires) {
-      const producer = producers.get(key)
-      if (producer === undefined) {
+      if (!producers.has(key)) {
         throw new MissingFeatureError(key, transform.id, 'no extractor or transform provides it')
       }
       // Extractors all run on stage 3, before every transform, so an extractor-provided
       // input imposes no ordering here — only transform-to-transform edges do.
-      const upstream = byId.get(producer)
+      const upstream = producedByTransform.get(key)
       if (upstream !== undefined) visit(upstream)
     }
     path.pop()

@@ -172,6 +172,18 @@ describe('transform ordering', () => {
     expect(sorted.map((t) => t.id)).toEqual(['b', 'a'])
   })
 
+  it('does not invent a cycle when an extractor and a transform share an id (§5 regression)', () => {
+    // The transform reads the extractor's output. Edges used to be keyed by producer id, so
+    // the extractor's id matching the transform's id created a phantom self-edge and a
+    // DEPENDENCY_CYCLE that does not exist. Edges are keyed by feature → transform now.
+    const sorted = graph({
+      extractors: [extractor('popularity', ['pop_raw'])],
+      transforms: [transform('popularity', ['pop_raw'], ['pop_scaled'])],
+    })
+
+    expect(sorted.map((t) => t.id)).toEqual(['popularity'])
+  })
+
   it('reports a cycle between transforms as a cycle', () => {
     const error = failure({
       transforms: [transform('a', ['b_out'], ['a_out']), transform('b', ['a_out'], ['b_out'])],
