@@ -1,0 +1,19 @@
+{
+  "name": "@recoengine/example-ecommerce",
+  "version": "0.0.0",
+  "private": true,
+  "description": "E-commerce recommendation domain on recoengine — the acceptance test for domain independence.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "demo": "node dist/demo.js"
+  },
+  "dependencies": {
+    "@recoengine/core": "workspace:*",
+    "@recoengine/diversity": "workspace:*",
+    "@recoengine/features": "workspace:*",
+    "@recoengine/modifiers": "workspace:*",
+    "@recoengine/strategies": "workspace:*"
+  }
+}

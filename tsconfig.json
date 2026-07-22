@@ -8,6 +8,7 @@
     { "path": "./packages/diversity" },
     { "path": "./packages/testing" },
     { "path": "./packages/recoengine" },
-    { "path": "./examples/music" }
+    { "path": "./examples/music" },
+    { "path": "./examples/ecommerce" }
   ]
 }
