@@ -434,4 +434,4 @@ examples/ecommerce/src/
 | `de604ff` | Этап 8а закрыт: `@recoengine/features` (2 экстрактора + 2 трансформа), флаг `featuresFromPlugins` в kit, ARCHITECTURE §11.3.1 сведён |
 | `ec24e13` | Этап 9 закрыт: `examples/music` (5 экстракторов + датасет + движок), 7 e2e-тестов, 0 изменений в core, ARCHITECTURE §22 сведён |
 | `2fa93cc` | Этап 10 закрыт: `examples/ecommerce` (взвешивание интента + prefilter «куплено»), 7 e2e-тестов, приёмочный тест пройден (0 изменений в core) |
-| _(pending)_ | Этап 11 подготовлен: фасад «с батарейками», версии 0.1.0 + CHANGELOG, 0 предупреждений биома, RELEASING.md — публикация ждёт auth |
+| `cce741b` | Этап 11 подготовлен: фасад «с батарейками», версии 0.1.0 + CHANGELOG, 0 предупреждений биома, RELEASING.md — публикация ждёт auth |
