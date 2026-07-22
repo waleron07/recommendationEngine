@@ -349,7 +349,7 @@ examples/ecommerce/src/
 
 | Что | Где | Состояние |
 |---|---|---|
-| **`ranking.ts` — 34.78% покрытия** | `pipeline/stages/ranking.ts` | Худшее место в кодовой базе. `assertRows`/`assertSubsetOf` — страховка от дублей строк — **сами не покрыты**. Чинить первым |
+| ~~`ranking.ts` — 34.78% покрытия~~ | — | **Закрыто (Этап 11):** `ranking.test.ts` — прямые тесты `rank`/`diversify`/`blend`/`truncate` + страховки `assertRows`/`assertSubsetOf` (дубли, вне диапазона, выдуманные строки) + обе ветки error-policy + abort |
 | **`FeatureCache` не подключён** | `ports/infra.ts`, токен `CACHE` | Порт объявлен, токен есть, пайплайн его не вызывает **ни разу** |
 | **Ключ кэша решён, не реализован** | — | Скоуп экстрактора (`id@version:key`), а не `schema.version`: иначе апдейт любого плагина обнуляет весь кэш. Приписывать должно ядро |
 | **`cache` у `UserFeatureExtractor`** | `ports/feature-extractor.ts` | Объявлял решённым и **не сделал**. Асимметрия §6 сохраняется |
