@@ -52,7 +52,8 @@ pnpm -r --filter='./packages/*' publish --access public --no-git-checks
 
 ## Known limitations shipped in 0.1.0
 
-Listed in the changeset and in [PROGRESS.md](./PROGRESS.md) §5 — none block use, but they
-belong in the release notes: no `softmax` normalizer; `container.child()` request-scope
-unused; a product combiner is not expressible through the board's re-fold; `cosine`
-underflows below ~1.5e-162 (unreachable for real data).
+Listed in the changeset — none block use, but they belong in the release notes:
+`container.child()` request-scope is declared but unused; `FeatureCache` and
+`retrievalScore` are declared ports not yet wired; a product combiner is not expressible
+through the board's re-fold (weighted-sum and RRF are); `cosine` underflows below
+~1.5e-162 (unreachable for real data). These are deferred by design, not oversights.

@@ -18,6 +18,7 @@
   not — in the feed. Two worked examples (music, e-commerce) demonstrate a second domain
   served with zero changes to the core.
 
-  Known limitations (see PROGRESS §5): `softmax` normalizer not implemented;
-  `container.child()` request-scope unused; a product combiner is not expressible through
-  the board's re-fold; `cosine` underflows below ~1.5e-162 (unreachable for real data).
+  Known limitations: `container.child()` request-scope is declared but unused;
+  `FeatureCache`/`retrievalScore` declared but not yet wired; a product combiner is not
+  expressible through the board's re-fold; `cosine` underflows below ~1.5e-162 (unreachable
+  for real data).

@@ -7,15 +7,15 @@ candidates, and every item in the result can tell you why it is there — as dat
 
 > **Status: pre-alpha. Nothing is published to npm yet.**
 > The engine works end to end: retrieval → filtering → features → scoring → normalization →
-> combination → modifiers → ranking → diversification → explanation. 672 tests; CI green on
+> combination → modifiers → ranking → diversification → explanation. 714 tests; CI green on
 > Node 20/22/24, Bun and Deno. The batteries are built too — strategies, modifiers, diversity,
-> reusable features and the testing kit all ship the standard plugins (stages 5–8а). Two full
+> reusable features and the testing kit all ship the standard plugins. Two full
 > domains — a music recommender ([`examples/music`](./examples/music/README.md)) and an e-commerce one
 > ([`examples/ecommerce`](./examples/ecommerce/README.md)) — run on those same packages with **zero
 > changes to the core**, which is the abstraction's acceptance test. The `v0.1.0` release is
 > prepared — batteries-included `recoengine` facade, changelogs, zero lint warnings — and only
 > the npm publish itself remains ([RELEASING.md](./RELEASING.md)). The public API may still
-> change. Current state: [PROGRESS.md](./PROGRESS.md).
+> change. The design is documented in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## The idea
 
@@ -42,7 +42,7 @@ Not on npm yet. To try it, build from source:
 git clone https://github.com/waleron07/recommendationEngine.git
 cd recommendationEngine
 pnpm install
-pnpm verify     # lint + architecture check + build + 672 tests
+pnpm verify     # lint + architecture check + build + 714 tests
 ```
 
 Then import from `packages/core/src`, or run `pnpm build` and import from `packages/core/dist`.
@@ -229,7 +229,7 @@ Full reasoning: [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ```bash
 pnpm verify     # lint + check:arch + build + test — what CI runs
-pnpm test       # 672 tests
+pnpm test       # 714 tests
 pnpm bench      # benchmarks: they measure, they do not assert
 pnpm docs       # typedoc
 ```
@@ -240,30 +240,15 @@ The architecture guard (`scripts/check-arch.mjs`) is not a formality: it fails t
 gains a dependency, imports `node:*`, or if a package depends rightwards. All four rules were
 verified by breaking them on purpose.
 
-## Roadmap
+## Status
 
-Stages follow [ARCHITECTURE.md §22](./ARCHITECTURE.md#22-план-реализации); current state and open
-debts live in [PROGRESS.md](./PROGRESS.md).
-
-| Stage | Content | Status |
-|---|---|---|
-| 0 | Workspace, TS, Biome, Vitest, Typedoc, CI, architecture guard | done |
-| 1 | Domain: ids, `FeatureMatrix`, `ProfileVector`, `ScoreBoard`, `HistoryIndex` | done |
-| 2 | Kernel: container, builder/registry, plugins, config, feature-graph validation | done |
-| 3 | Pipeline: 16 stages, middleware, cancellation, error policy | done |
-| 4 | Maths: normalizers, similarity, RRF, decay, heap, seeded RNG | done |
-| 5 | `@recoengine/strategies` — nine strategies | done |
-| 6 | `@recoengine/modifiers` — fatigue, novelty, boost | done |
-| 6а | `@recoengine/testing` — fixtures and port contracts | done |
-| 7 | `@recoengine/diversity` — MMR, quotas, similarity, blender | done |
-| 8 | Explainability — trace, rounded scale, `engine.explain()` | done |
-| 8а | `@recoengine/features` — reusable extractors and transforms | done |
-| 9 | Music example (`examples/music`) — zero core changes | done |
-| 10 | E-commerce example (`examples/ecommerce`) — domain-independence acceptance test | done |
-| 11 | `v0.1.0` — batteries-included facade, changelogs, zero warnings | ready; publish pending |
-
-Stage 10 is not a demo. If a second domain requires touching `core`, the abstraction leaked and gets
-fixed before release.
+Everything is built: the zero-dependency core, all standard plugin packages (strategies,
+modifiers, diversity, features, testing), and two worked domains (`examples/music`,
+`examples/ecommerce`) that run on those packages with **zero changes to `core`** — the
+architecture's acceptance test. `v0.1.0` is prepared (batteries-included `recoengine`
+facade, changelogs, zero lint warnings); only the npm publish itself remains, see
+[RELEASING.md](./RELEASING.md). The design, section by section, is in
+[ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## License
 
